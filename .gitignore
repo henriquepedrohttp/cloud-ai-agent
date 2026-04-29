@@ -1,0 +1,41 @@
+# Dependências Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+# Variáveis de ambiente (NUNCA versionar!)
+.env
+.env.local
+.env.*.local
+# Logs
+logs
+*.log
+# Sistema operacional
+.DS_Store
+Thumbs.db
+# IDEs e editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+# Docker
+.docker/
+# Kubernetes (não versionar secrets com dados reais)
+k8s/secret.yaml
+# Build e cache
+dist/
+build/
+.cache/
+*.tgz
+# Test coverage
+coverage/
+# Temporary files
+tmp/
+temp/
+*.tmp
+# Outros
+*.pid
+*.seed
+*.pid.lock
