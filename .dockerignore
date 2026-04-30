@@ -1,0 +1,22 @@
+# Dependências
+node_modules
+npm-debug.log
+# Variáveis de ambiente (nunca no container!)
+.env
+.env.local
+# Git
+.git
+.gitignore
+# Documentação
+README.md
+# Kubernetes (não faz parte da imagem)
+k8s/
+# IDEs
+.vscode/
+.idea/
+*.swp
+# Logs
+logs
+*.log
+# Testes
+coverage/
