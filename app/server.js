@@ -74,10 +74,26 @@ app.post('/api/chat', async (req, res) => {
 // Analisador de Repositório GitHub para POs
 app.post('/api/analyze', async (req, res) => {
   try {
-    const { repoUrl, question } = req.body;
+    let { repoUrl, question } = req.body;
     
+    // Se receber texto livre, extrair URL e pergunta
+    if (!repoUrl && !question && req.body.text) {
+      const text = req.body.text;
+      // Extrair URL do GitHub do texto
+      const urlMatch = text.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/[^\/\s]+\/[^\/\s]+/);
+      if (urlMatch) {
+        repoUrl = urlMatch[0];
+        // Remover a URL do texto e limpar palavras-chave
+        question = text
+          .replace(urlMatch[0], '')
+          .replace(/me analiza|me analiza|verifica|diz se|esse repo|este repo|analisa|me diga|fala se|essa funcionalidade|essa feature|esse recurso|foi implementada|foi corrigido|foi feito/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+    }
+
     if (!repoUrl || !question) {
-      return res.status(400).json({ error: 'URL do repositório e pergunta são obrigatória' });
+      return res.status(400).json({ error: 'Forneça a URL do repositório e sua pergunta. Ex: "https://github.com/owner/repo" e "foi implementada a função X"' });
     }
 
     // Extrair owner e repo da URL
@@ -87,7 +103,7 @@ app.post('/api/analyze', async (req, res) => {
     }
 
     const owner = match[1];
-    const repo = match[2].replace(/\/$/, '');
+    const repo = match[2].replace(/\/$/, '').replace(/\.git$/, '');
 
     // Calcular data de 7 dias atrás
     const sevenDaysAgo = new Date();

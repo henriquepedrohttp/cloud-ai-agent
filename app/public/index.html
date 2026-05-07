@@ -154,17 +154,13 @@
         <div id="analyzer-tab" class="tab-content">
             <div class="info-box">
                 <h3>📋 Para Product Owners</h3>
-                <p>Digite a URL de um repositório GitHub e faça sua pergunta. O agente analisará os commits dos últimos 7 dias para responder se a funcionalidade/correção foi implementada.</p>
+                <p>Escreva sua pergunta com a URL do repositório. Ex: "https://github.com/facebook/react foi implementada a funcionalidade de login?"</p>
             </div>
             
             <div class="analyzer-form">
                 <div class="form-group">
-                    <label for="repoUrl">URL do Repositório GitHub:</label>
-                    <input type="text" id="repoUrl" placeholder="https://github.com/facebook/react">
-                </div>
-                <div class="form-group">
-                    <label for="question">Pergunta para o PO:</label>
-                    <textarea id="question" placeholder="Ex: A funcionalidade de login foi implementada? O bug da tela inicial foi corrigido?"></textarea>
+                    <label for="analyzerInput">Sua pergunta:</label>
+                    <textarea id="analyzerInput" placeholder="Ex: me analisa https://github.com/facebook/react e diz se a funcionalidade de login foi implementada"></textarea>
                 </div>
                 <button id="analyzeBtn" onclick="analyzeRepo()">🔍 Analisar Repositório</button>
             </div>
@@ -237,11 +233,10 @@
         const resultContainer = document.getElementById('result');
 
         async function analyzeRepo() {
-            const repoUrl = document.getElementById('repoUrl').value.trim();
-            const question = document.getElementById('question').value.trim();
+            const analyzerInput = document.getElementById('analyzerInput').value.trim();
             
-            if (!repoUrl || !question) {
-                alert('Por favor, preencha a URL do repositório e sua pergunta.');
+            if (!analyzerInput) {
+                alert('Por favor, digite sua pergunta com a URL do repositório.');
                 return;
             }
 
@@ -253,7 +248,7 @@
                 const response = await fetch('/api/analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ repoUrl, question })
+                    body: JSON.stringify({ text: analyzerInput })
                 });
                 const data = await response.json();
                 
