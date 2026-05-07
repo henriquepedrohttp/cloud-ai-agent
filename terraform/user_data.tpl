@@ -61,9 +61,13 @@ echo "PORT=3000" >> .env
 
 # Build
 log "Buildando container Docker..."
+cd /app
 docker build -t cloud-ai-agent . >> "$LOG_FILE" 2>&1
-if [ $? -ne 0 ]; then
-    log "ERRO: docker build falhou"
+BUILD_RESULT=$?
+if [ $BUILD_RESULT -ne 0 ]; then
+    log "ERRO: docker build falhou (código: $BUILD_RESULT)"
+    log "Detalhes do erro:"
+    docker build -t cloud-ai-agent . 2>&1 | head -30 >> "$LOG_FILE"
     exit 1
 fi
 
