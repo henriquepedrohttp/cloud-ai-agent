@@ -95,6 +95,24 @@
             border-color: var(--btn-danger);
         }
         
+        /* Botão Nova Conversa */
+        .btn-new-chat {
+            padding: 8px 16px;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 15px;
+        }
+        .btn-new-chat:hover {
+            background: var(--accent-blue);
+            color: white;
+            border-color: var(--accent-blue);
+        }
+        
         /* Tabs */
         .tabs { 
             display: flex; 
@@ -288,6 +306,8 @@
         
         <!-- Tab Chat -->
         <div id="chat-tab" class="tab-content active">
+            <button class="btn-new-chat" onclick="clearChat()">🔄 Nova Conversa</button>
+            
             <div class="info-box">
                 <h3>💡 Dica de Uso</h3>
                 <p>Converse com a IA! Pergunte sobre código, tecnologia, ou qualquer assunto.</p>
@@ -301,10 +321,14 @@
                 <button id="sendBtn" onclick="sendMessage()">Enviar</button>
             </div>
             <div id="chat-loading" class="loading">⏳ Processando...</div>
+            
+            <button class="btn-new-chat" onclick="clearChat()" style="margin-top: 15px;">🔄 Nova Conversa</button>
         </div>
         
         <!-- Tab Analyzer -->
         <div id="analyzer-tab" class="tab-content">
+            <button class="btn-new-chat" onclick="clearAnalyzer()">🔄 Nova Conversa</button>
+            
             <div class="info-box">
                 <h3>📋 Guia de Uso</h3>
                 <p><strong>Primeira vez:</strong> Envie o link do repo + pergunta. Ex: "https://github.com/facebook/react quais alterações esta semana?"</p>
@@ -322,6 +346,8 @@
             
             <div id="analyzer-loading" class="loading">⏳ Analisando repositório...</div>
             <div id="result" class="result-container"></div>
+            
+            <button class="btn-new-chat" onclick="clearAnalyzer()" style="margin-top: 15px;">🔄 Nova Conversa</button>
         </div>
     </div>
 
@@ -368,6 +394,21 @@
             } catch (error) {
                 alert('Erro ao limpar sessão: ' + error.message);
             }
+        }
+
+        // Limpar chat (Nova Conversa)
+        function clearChat() {
+            const chat = document.getElementById('chat');
+            chat.innerHTML = '<div class="message ai-message">Olá! Sou o Atlas AI, seu assistente inteligente. Como posso ajudar você hoje?</div>';
+            document.getElementById('userInput').value = '';
+        }
+
+        // Limpar analyzer (Nova Conversa)
+        function clearAnalyzer() {
+            const result = document.getElementById('result');
+            result.innerHTML = '';
+            result.classList.remove('show', 'result-success', 'result-error');
+            document.getElementById('analyzerInput').value = '';
         }
 
         // Tabs
