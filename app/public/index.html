@@ -19,6 +19,8 @@
             --accent-purple: #bc8cff;
             --btn-primary: #238636;
             --btn-hover: #2ea043;
+            --btn-danger: #da3633;
+            --btn-danger-hover: #f85149;
         }
         
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -53,6 +55,44 @@
             color: var(--text-secondary); 
             margin-bottom: 20px;
             font-size: 14px;
+        }
+        
+        /* Header com sessão */
+        .session-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            font-size: 13px;
+        }
+        .session-info {
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .session-repo {
+            color: var(--accent-blue);
+            font-weight: 600;
+        }
+        .btn-clear {
+            padding: 8px 16px;
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-clear:hover {
+            background: var(--btn-danger);
+            color: white;
+            border-color: var(--btn-danger);
         }
         
         /* Tabs */
@@ -127,7 +167,7 @@
             font-weight: 500;
             font-size: 14px;
         }
-        .form-group input, .form-group textarea {
+        .form-group textarea {
             width: 100%;
             padding: 14px;
             border: 1px solid var(--border-color);
@@ -137,14 +177,12 @@
             background: var(--bg-primary);
             color: var(--text-primary);
             transition: border-color 0.2s;
+            min-height: 100px;
+            resize: vertical;
         }
-        .form-group input:focus, .form-group textarea:focus { 
+        .form-group textarea:focus { 
             border-color: var(--accent-blue); 
             outline: none; 
-        }
-        .form-group textarea { 
-            height: 100px; 
-            resize: vertical; 
         }
         
         .result-container {
@@ -162,7 +200,7 @@
         }
         .result-container.show { display: block; }
         .result-success { border-left: 4px solid var(--accent-green); }
-        .result-error { border-left: 4px solid #da3633; }
+        .result-error { border-left: 4px solid var(--btn-danger); }
         
         /* Comum */
         .input-container { display: flex; gap: 10px; }
@@ -234,6 +272,15 @@
         <h1>🪐 Atlas AI</h1>
         <p class="subtitle">Chat Inteligente & Analisador de Repositórios</p>
         
+        <!-- Barra de Sessão -->
+        <div class="session-bar" id="sessionBar" style="display: none;">
+            <div class="session-info">
+                <span>📁 Repo atual:</span>
+                <span class="session-repo" id="currentRepo">Nenhum</span>
+            </div>
+            <button class="btn-clear" onclick="clearSession()">🧹 Limpar Sessão</button>
+        </div>
+        
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('chat')">💬 Chat</button>
             <button class="tab-btn" onclick="switchTab('analyzer')">🔍 Analyzer</button>
@@ -243,7 +290,7 @@
         <div id="chat-tab" class="tab-content active">
             <div class="info-box">
                 <h3>💡 Dica de Uso</h3>
-                <p>Converse com a IA! Pergunte sobre código, tecnologia, ou qualquer assunto. A IA usa o modelo MiniMax M2.5 Free.</p>
+                <p>Converse com a IA! Pergunte sobre código, tecnologia, ou qualquer assunto.</p>
             </div>
             
             <div id="chat" class="chat-container">
@@ -260,7 +307,9 @@
         <div id="analyzer-tab" class="tab-content">
             <div class="info-box">
                 <h3>📋 Guia de Uso</h3>
-                <p>Digite a URL do repositório GitHub e sua pergunta. Ex: "https://github.com/facebook/react quais alterações foram feitas esta semana?"</p>
+                <p><strong>Primeira vez:</strong> Envie o link do repo + pergunta. Ex: "https://github.com/facebook/react quais alterações esta semana?"</p>
+                <p style="margin-top: 8px;"><strong>Depois:</strong> Apenas digite a pergunta! O sistema lembra do repo. Ex: "foi implementado o login?"</p>
+                <p style="margin-top: 8px;"><strong>Novo repo:</strong> Envie um novo link quando quiser analisar outro projeto.</p>
             </div>
             
             <div class="analyzer-form">
@@ -268,7 +317,7 @@
                     <label for="analyzerInput">Sua pergunta:</label>
                     <textarea id="analyzerInput" placeholder="Ex: https://github.com/facebook/react quais alterações foram feitas esta semana?"></textarea>
                 </div>
-                <button id="analyzeBtn" onclick="analyzeRepo()">🔍 Analisar Repositório</button>
+                <button id="analyzeBtn" onclick="analyzeRepo()">🔍 Analisar</button>
             </div>
             
             <div id="analyzer-loading" class="loading">⏳ Analisando repositório...</div>
@@ -277,6 +326,50 @@
     </div>
 
     <script>
+        // Variáveis globais
+        let currentRepo = null;
+
+        // Verificar sessão ao carregar
+        async function checkSession() {
+            try {
+                const response = await fetch('/api/session');
+                const data = await response.json();
+                if (data.hasRepo && data.repoFormatted) {
+                    currentRepo = data.repoFormatted;
+                    updateSessionBar();
+                }
+            } catch (e) {
+                console.log('Sem sessão ativa');
+            }
+        }
+
+        // Atualizar barra de sessão
+        function updateSessionBar() {
+            const bar = document.getElementById('sessionBar');
+            const repoText = document.getElementById('currentRepo');
+            if (currentRepo) {
+                repoText.textContent = currentRepo;
+                bar.style.display = 'flex';
+            } else {
+                bar.style.display = 'none';
+            }
+        }
+
+        // Limpar sessão
+        async function clearSession() {
+            try {
+                const response = await fetch('/api/reset', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    currentRepo = null;
+                    updateSessionBar();
+                    alert('✅ Sessão limpa com sucesso!');
+                }
+            } catch (error) {
+                alert('Erro ao limpar sessão: ' + error.message);
+            }
+        }
+
         // Tabs
         function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -343,7 +436,7 @@
             const analyzerInput = document.getElementById('analyzerInput').value.trim();
             
             if (!analyzerInput) {
-                alert('Por favor, digite a URL do repositório e sua pergunta.');
+                alert('Por favor, digite sua pergunta.');
                 return;
             }
 
@@ -362,6 +455,12 @@
                 if (data.success) {
                     resultContainer.textContent = data.answer;
                     resultContainer.classList.add('show', 'result-success');
+                    
+                    // Atualizar sessão se tiver repo novo
+                    if (data.sessionInfo && data.sessionInfo.repo) {
+                        currentRepo = data.sessionInfo.repo;
+                        updateSessionBar();
+                    }
                 } else {
                     throw new Error(data.error || data.details);
                 }
@@ -373,6 +472,9 @@
                 analyzerLoading.style.display = 'none';
             }
         }
+
+        // Inicializar
+        checkSession();
     </script>
 </body>
 </html>

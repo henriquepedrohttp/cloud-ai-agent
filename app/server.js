@@ -4,13 +4,24 @@ const cors = require('cors');
 require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
+
 // Configurações da API OpenCode Zen
 const OPENCODE_API_URL = 'https://opencode.ai/zen/v1/chat/completions';
 const OPENCODE_API_KEY = process.env.OPENCODE_API_KEY;
+
+// Sessão global (em memória) - armazena o repositório atual
+let currentSession = {
+  repoUrl: null,
+  owner: null,
+  repo: null,
+  lastUsed: null
+};
+
 // Rota de saúde
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
@@ -26,6 +37,32 @@ app.get('/debug', (req, res) => {
     });
   });
 });
+
+// Rota para obter status da sessão
+app.get('/api/session', (req, res) => {
+  res.json({
+    hasRepo: !!currentSession.repoUrl,
+    repo: currentSession.repoUrl,
+    repoFormatted: currentSession.owner && currentSession.repo ? `${currentSession.owner}/${currentSession.repo}` : null,
+    lastUsed: currentSession.lastUsed
+  });
+});
+
+// Rota para limpar sessão
+app.post('/api/reset', (req, res) => {
+  currentSession = {
+    repoUrl: null,
+    owner: null,
+    repo: null,
+    lastUsed: null
+  };
+  res.json({
+    success: true,
+    message: 'Sessão limpa com sucesso!',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Rota principal para chat com o agente
 app.post('/api/chat', async (req, res) => {
   try {
@@ -71,76 +108,143 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// Função para extrair repo da URL
+function extractRepoFromUrl(url) {
+  const match = url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+  if (!match) return null;
+  return {
+    url: url,
+    owner: match[1],
+    repo: match[2].replace(/\/$/, '').replace(/\.git$/, '')
+  };
+}
+
+// Função para detectar período na pergunta
+function detectPeriod(question) {
+  let period = 7;
+  let periodText = 'últimos 7 dias';
+  const questionLower = question.toLowerCase();
+
+  const periodPatterns = [
+    { regex: /(?:nesta|esta|na)\s+semana/i, days: 7, text: 'esta semana' },
+    { regex: /(?:na\s+)?ultim[oa]s?\s+(\d+)\s*dias?/i, extract: (m) => ({ days: parseInt(m[1]), text: `últimos ${m[1]} dias` }) },
+    { regex: /(?:na\s+)?ultim[oa]s?\s+(\d+)\s*semanas?/i, extract: (m) => ({ days: parseInt(m[1]) * 7, text: `últimas ${m[1]} semanas` }) },
+    { regex: /(?:na\s+)?ultim[oa]s?\s+(\d+)\s*mes(es)?/i, extract: (m) => ({ days: parseInt(m[1]) * 30, text: `últimos ${m[1]} meses` }) },
+    { regex: /(?:na\s+)?ultim[oa]s?\s*semana/i, days: 7, text: 'última semana' },
+    { regex: /(?:no\s+)?ultim[oa]s?\s*mes/i, days: 30, text: 'último mês' },
+    { regex: /(?:nos\s+)?ultimos?\s*dois?\s*meses?/i, days: 60, text: 'últimos 2 meses' },
+    { regex: /(?:nos\s+)?ultimos?\s*tr[eê]s?\s*meses?/i, days: 90, text: 'últimos 3 meses' },
+    { regex: /hoje|dia/i, days: 1, text: 'hoje' },
+    { regex: /ontem/i, days: 2, text: 'ontem' },
+  ];
+
+  for (const pattern of periodPatterns) {
+    const matchPeriod = questionLower.match(pattern.regex);
+    if (matchPeriod) {
+      if (pattern.extract) {
+        const result = pattern.extract(matchPeriod);
+        period = result.days;
+        periodText = result.text;
+      } else {
+        period = pattern.days;
+        periodText = pattern.text;
+      }
+      break;
+    }
+  }
+
+  return { period, periodText };
+}
+
 // Analisador de Repositório GitHub para POs
 app.post('/api/analyze', async (req, res) => {
   try {
     let { repoUrl, question } = req.body;
+    let text = req.body.text;
+    let repoChanged = false;
+    let sessionCleared = false;
     
-    // Se receber texto livre, extrair URL e pergunta
-    if (!repoUrl && !question && req.body.text) {
-      const text = req.body.text;
-      // Extrair URL do GitHub do texto
+    // Se receber texto livre
+    if (text) {
+      const textLower = text.toLowerCase();
+      
+      // Verificar se é comando para limpar sessão
+      if (/^\s*(limpar|resetar|nova\s+sess[ãa]o|clear|reset)\s*$/i.test(text)) {
+        currentSession = { repoUrl: null, owner: null, repo: null, lastUsed: null };
+        return res.json({
+          success: true,
+          answer: '🧹 **Sessão limpa com sucesso!**\n\nO repositório atual foi removido. Envie um novo link quando quiser analisar outro projeto.',
+          sessionCleared: true,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Tentar extrair URL do GitHub do texto
       const urlMatch = text.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/[^\/\s]+\/[^\/\s]+/);
+      
       if (urlMatch) {
+        // Novo repositório encontrado no texto
         repoUrl = urlMatch[0];
-        // Remover apenas a URL do texto - manter o resto como pergunta
         question = text.replace(urlMatch[0], '').trim();
+        
+        // Atualizar sessão
+        const extracted = extractRepoFromUrl(repoUrl);
+        if (extracted) {
+          currentSession = {
+            repoUrl: repoUrl,
+            owner: extracted.owner,
+            repo: extracted.repo,
+            lastUsed: new Date().toISOString()
+          };
+          repoChanged = true;
+        }
+      } else if (currentSession.repoUrl) {
+        // Não tem URL no texto, mas tem sessão ativa
+        repoUrl = currentSession.repoUrl;
+        question = text;
+      } else {
+        // Não tem URL e não tem sessão
+        return res.status(400).json({ 
+          error: 'Nenhum repositório definido. Envie um link do GitHub primeiro ou digite "limpar" para resetar.',
+          needsRepo: true
+        });
       }
     }
 
     if (!repoUrl || !question) {
-      return res.status(400).json({ error: 'Forneça a URL do repositório e sua pergunta. Ex: "https://github.com/owner/repo foi implementada a função X"' });
+      return res.status(400).json({ 
+        error: 'Forneça a URL do repositório e sua pergunta.',
+        example: 'https://github.com/facebook/react quais alterações esta semana?'
+      });
     }
 
-    // Extrair owner e repo da URL
-    const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-    if (!match) {
-      return res.status(400).json({ error: 'URL do GitHub inválida. Use: https://github.com/owner/repo' });
+    // Extrair owner e repo da URL (se não estiver na sessão)
+    if (!currentSession.owner || !currentSession.repo) {
+      const extracted = extractRepoFromUrl(repoUrl);
+      if (!extracted) {
+        return res.status(400).json({ error: 'URL do GitHub inválida. Use: https://github.com/owner/repo' });
+      }
+      currentSession = {
+        repoUrl: repoUrl,
+        owner: extracted.owner,
+        repo: extracted.repo,
+        lastUsed: new Date().toISOString()
+      };
+      repoChanged = true;
     }
 
-    const owner = match[1];
-    const repo = match[2].replace(/\/$/, '').replace(/\.git$/, '');
+    const owner = currentSession.owner;
+    const repo = currentSession.repo;
 
     // Detectar período na pergunta
-    let period = 7; // padrão: 7 dias
-    let periodText = 'últimos 7 dias';
-    const questionLower = question.toLowerCase();
-
-    // Mapeamento de períodos - ordem importa (mais específicos primeiro)
-    const periodPatterns = [
-      { regex: /(?:nesta|esta|na)\s+semana/i, days: 7, text: 'esta semana' },
-      { regex: /(?:na\s+)?ultim[oa]s?\s+(\d+)\s*dias?/i, extract: (m) => ({ days: parseInt(m[1]), text: `últimos ${m[1]} dias` }) },
-      { regex: /(?:na\s+)?ultim[oa]s?\s+(\d+)\s*semanas?/i, extract: (m) => ({ days: parseInt(m[1]) * 7, text: `últimas ${m[1]} semanas` }) },
-      { regex: /(?:na\s+)?ultim[oa]s?\s+(\d+)\s*mes(es)?/i, extract: (m) => ({ days: parseInt(m[1]) * 30, text: `últimos ${m[1]} meses` }) },
-      { regex: /(?:na\s+)?ultim[oa]s?\s*semana/i, days: 7, text: 'última semana' },
-      { regex: /(?:no\s+)?ultim[oa]s?\s*mes/i, days: 30, text: 'último mês' },
-      { regex: /(?:nos\s+)?ultimos?\s*dois?\s*meses?/i, days: 60, text: 'últimos 2 meses' },
-      { regex: /(?:nos\s+)?ultimos?\s*tr[eê]s?\s*meses?/i, days: 90, text: 'últimos 3 meses' },
-      { regex: /hoje|dia/i, days: 1, text: 'hoje' },
-      { regex: /ontem/i, days: 2, text: 'ontem' },
-    ];
-
-    for (const pattern of periodPatterns) {
-      const matchPeriod = questionLower.match(pattern.regex);
-      if (matchPeriod) {
-        if (pattern.extract) {
-          const result = pattern.extract(matchPeriod);
-          period = result.days;
-          periodText = result.text;
-        } else {
-          period = pattern.days;
-          periodText = pattern.text;
-        }
-        break;
-      }
-    }
+    const { period, periodText } = detectPeriod(question);
 
     // Calcular data de início do período
     const sinceDate = new Date();
     sinceDate.setDate(sinceDate.getDate() - period);
     const sinceDateStr = sinceDate.toISOString();
 
-    // Verificar se o repositório existe antes de buscar commits
+    // Verificar se o repositório existe
     try {
       await axios.get(`https://api.github.com/repos/${owner}/${repo}`, {
         headers: { 'Accept': 'application/vnd.github.v3+json' }
@@ -163,18 +267,27 @@ app.post('/api/analyze', async (req, res) => {
 
     const commits = commitsResponse.data;
     const totalCommits = commits.length;
+    const questionLower = question.toLowerCase();
 
     // Verificar se é uma pergunta genérica (resumo)
-    const isGenericQuestion = /funcionalidades?|features?|recursos?|o que foi|quais|alterações?|mudanças?|resumo|sumário/i.test(questionLower);
+    const isGenericQuestion = /funcionalidades?|features?|recursos?|o que foi|quais|alterações?|mudanças?|resumo|sumário|tudo/i.test(questionLower);
     const isSpecificQuestion = /foi implementad[oa]?|foi corrigido|foi adicionado|foi criado|existe|tem|possui/i.test(questionLower);
 
     let answer = '';
     let relatedCommits = [];
 
+    // Header da resposta
+    let headerInfo = '';
+    if (repoChanged) {
+      headerInfo = `📁 **Novo repositório definido:** ${owner}/${repo}\n\n`;
+    } else {
+      headerInfo = `📁 **Repositório atual:** ${owner}/${repo}\n\n`;
+    }
+
     if (isGenericQuestion && totalCommits > 0) {
       // Pergunta genérica - mostrar resumo de todos os commits
-      answer = `📊 **RESUMO DAS ALTERAÇÕES** em ${periodText}:\n\n`;
-      answer += `📁 Repositório: ${owner}/${repo}\n`;
+      answer = headerInfo;
+      answer += `📊 **RESUMO DAS ALTERAÇÕES** em ${periodText}:\n\n`;
       answer += `📅 Período: ${periodText}\n`;
       answer += `📝 Total de commits: ${totalCommits}\n\n`;
       
@@ -216,8 +329,7 @@ app.post('/api/analyze', async (req, res) => {
 
     } else if (isSpecificQuestion || !isGenericQuestion) {
       // Pergunta específica - buscar por palavras-chave
-      // Extrair palavras-chave (agora com >2 caracteres para pegar "login", "fix", etc)
-      const stopWords = ['foi', 'implementada', 'implementado', 'adicionado', 'corrigido', 'criado', 'existe', 'tem', 'possui', 'esta', 'nesta', 'na', 'no', 'de', 'da', 'do', 'em', 'um', 'uma', 'o', 'a', 'e', 'ou', 'que', 'com', 'por', 'para'];
+      const stopWords = ['foi', 'implementada', 'implementado', 'adicionado', 'corrigido', 'criado', 'existe', 'tem', 'possui', 'esta', 'nesta', 'na', 'no', 'de', 'da', 'do', 'em', 'um', 'uma', 'o', 'a', 'e', 'ou', 'que', 'com', 'por', 'para', 'sobre', 'dessa', 'desse'];
       
       const questionWords = question.toLowerCase()
         .replace(/[^\w\s]/g, ' ')
@@ -232,8 +344,10 @@ app.post('/api/analyze', async (req, res) => {
         });
       }
 
+      answer = headerInfo;
+
       if (relatedCommits.length > 0) {
-        answer = `✅ **SIM!** Encontrei ${relatedCommits.length} commit(s) relacionado(s) em ${periodText}:\n\n`;
+        answer += `✅ **SIM!** Encontrei ${relatedCommits.length} commit(s) relacionado(s) em ${periodText}:\n\n`;
         relatedCommits.slice(0, 10).forEach(c => {
           const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
           const shortMsg = c.commit.message.split('\n')[0].substring(0, 80);
@@ -244,7 +358,7 @@ app.post('/api/analyze', async (req, res) => {
         }
         answer += `\n\n✅ **Resposta:** Sim, a funcionalidade/alteração parece ter sido implementada!`;
       } else {
-        answer = `❌ **NÃO** encontrei commits relacionados à sua pergunta em ${periodText}.\n\n`;
+        answer += `❌ **NÃO** encontrei commits relacionados à sua pergunta em ${periodText}.\n\n`;
         answer += `📊 Resumo do período: ${totalCommits} commits foram feitos, mas nenhum parece estar relacionado ao que você perguntou.\n\n`;
         if (totalCommits > 0) {
           answer += `💡 **Commits recentes:**\n`;
@@ -256,6 +370,9 @@ app.post('/api/analyze', async (req, res) => {
         }
       }
     }
+
+    // Adicionar dica sobre como fazer novas perguntas
+    answer += `\n\n💡 **Dica:** Você pode fazer mais perguntas sobre este mesmo repositório sem enviar o link novamente. Apenas digite sua nova pergunta!`;
 
     res.json({
       success: true,
@@ -270,6 +387,11 @@ app.post('/api/analyze', async (req, res) => {
         url: c.html_url
       })),
       answer,
+      sessionInfo: {
+        hasRepo: true,
+        repo: `${owner}/${repo}`,
+        message: 'Repositório salvo na sessão. Faça mais perguntas sem enviar o link novamente!'
+      },
       timestamp: new Date().toISOString()
     });
 
@@ -288,8 +410,9 @@ app.post('/api/analyze', async (req, res) => {
     });
   }
 });
+
 // Iniciar servidor
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
-  console.log(`🤖 Agente de IA - MiniMax M2.5 Free`);
+  console.log(`🤖 Atlas AI - MiniMax M2.5 Free`);
 });
