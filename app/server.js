@@ -15,6 +15,17 @@ const OPENCODE_API_KEY = process.env.OPENCODE_API_KEY;
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
+
+// Rota de debug - mostra logs do deploy
+app.get('/debug', (req, res) => {
+  const { exec } = require('child_process');
+  exec('cat /var/log/deploy.log 2>/dev/null || echo "Log não encontrado"', (err, stdout, stderr) => {
+    res.json({
+      deploy_log: stdout || 'Log não disponível',
+      timestamp: new Date().toISOString()
+    });
+  });
+});
 // Rota principal para chat com o agente
 app.post('/api/chat', async (req, res) => {
   try {
