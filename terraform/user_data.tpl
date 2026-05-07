@@ -16,24 +16,11 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Instalar dependências necessárias
-log "Instalando git e dependências..."
-apt-get install -y git curl ca-certificates gnupg lsb-release >> "$LOG_FILE" 2>&1
+# Instalar git e docker.io (dos repositórios Ubuntu)
+log "Instalando git e docker.io..."
+apt-get install -y git docker.io >> "$LOG_FILE" 2>&1
 if [ $? -ne 0 ]; then
-    log "ERRO: Falha ao instalar git"
-    exit 1
-fi
-
-# Instalar Docker
-log "Instalando Docker..."
-# Adicionar repositório oficial do Docker
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg >> "$LOG_FILE" 2>&1
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-apt-get update >> "$LOG_FILE" 2>&1
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >> "$LOG_FILE" 2>&1
-if [ $? -ne 0 ]; then
-    log "ERRO: Falha ao instalar Docker"
+    log "ERRO: Falha ao instalar git ou docker"
     exit 1
 fi
 
@@ -49,6 +36,9 @@ if [ $? -ne 0 ]; then
     log "ERRO: Docker não está funcionando"
     exit 1
 fi
+
+# Adicionar usuário ubuntu ao grupo docker (opcional)
+usermod -aG docker ubuntu 2>/dev/null || true
 
 # Clonar repositório
 log "Clonando repositório do GitHub..."
@@ -92,6 +82,7 @@ fi
 sleep 5
 if docker ps | grep -q cloud-ai-agent; then
     log "=== Deploy concluído com sucesso! ==="
+    log "IP público: $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)"
 else
     log "ERRO: Container não está rodando!"
     exit 1
