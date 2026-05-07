@@ -35,6 +35,11 @@ coverage/
 tmp/
 temp/
 *.tmp
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+
 # Outros
 *.pid
 *.seed
