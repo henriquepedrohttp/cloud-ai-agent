@@ -10,7 +10,7 @@ output "public_ip" {
 
 output "ami_id" {
   description = "AMI utilizada"
-  value       = data.aws_ami.ubuntu.id
+  value       = data.aws_ami.ecs_optimized.id
 }
 
 output "instance_state" {

@@ -8,13 +8,8 @@ log() {
 
 log "=== Iniciando deploy do Cloud AI Agent ==="
 
-# Atualizar sistema e instalar Docker
-log "Instalando Docker e dependências..."
-apt update >> "$LOG_FILE" 2>&1 || log "ERRO: apt update falhou"
-apt install -y docker.io docker-compose git >> "$LOG_FILE" 2>&1 || log "ERRO: Docker install falhou"
-
-# Iniciar serviço Docker
-log "Iniciando serviço Docker..."
+# Iniciar Docker (já instalado no Amazon Linux 2)
+log "Iniciando Docker..."
 systemctl start docker >> "$LOG_FILE" 2>&1 || log "ERRO: Docker start falhou"
 systemctl enable docker >> "$LOG_FILE" 2>&1 || log "ERRO: Docker enable falhou"
 
