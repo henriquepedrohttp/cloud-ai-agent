@@ -635,6 +635,70 @@ function isExceptionMatch(word1, word2) {
   );
 }
 
+// Função para analisar commits semanticamente com LLM
+async function analyzeCommitsWithLLM(commits, question, model) {
+  try {
+    const selectedModel = model || currentSession.model || 'deepseek-v4-flash';
+    
+    // Limitar a 30 commits para não estourar contexto
+    const commitsToAnalyze = commits.slice(0, 30);
+    const commitsText = commitsToAnalyze.map((c, i) => 
+      `[${i + 1}] ${c.commit.message.split('\n')[0]} (${c.commit.author.date.split('T')[0]})`
+    ).join('\n');
+
+    const response = await axios.post(
+      OPENCODE_API_URL,
+      {
+        model: selectedModel,
+        messages: [
+          {
+            role: 'system',
+            content: 'Você é um analisador de commits Git. Sua tarefa é identificar commits relevantes a uma pergunta. Responda APENAS com números entre colchetes dos commits relevantes, ou "NENHUM" se nenhum for relevante. Não dê explicações.'
+          },
+          {
+            role: 'user',
+            content: `Pergunta: "${question}"
+
+Commits disponíveis:
+${commitsText}
+
+Quais commits são relevantes à pergunta? Responda apenas com os números [1], [2], etc. ou "NENHUM".`
+          }
+        ],
+        max_tokens: 200,
+        temperature: 0.1
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${OPENCODE_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const content = response.data.choices[0].message.content;
+    
+    // Se respondeu NENHUM
+    if (content.toUpperCase().includes('NENHUM')) {
+      return [];
+    }
+
+    // Extrair números [1], [2], etc.
+    const matches = content.match(/\[(\d+)\]/g);
+    if (!matches) return [];
+
+    const indices = matches.map(m => parseInt(m.replace(/[\[\]]/g, '')) - 1);
+    const relevantCommits = indices
+      .filter(i => i >= 0 && i < commitsToAnalyze.length)
+      .map(i => commitsToAnalyze[i]);
+
+    return relevantCommits;
+  } catch (error) {
+    console.error('Erro na análise LLM:', error.message);
+    return null; // null = erro, não conseguiu analisar
+  }
+}
+
 // Função para expandir palavras PT → EN
 function expandKeywords(words) {
   const expanded = new Set();
@@ -876,31 +940,38 @@ app.post('/api/analyze', async (req, res) => {
         }
         answer += `\n\n✅ **Resposta:** Sim, a funcionalidade/alteração parece ter sido implementada!`;
       } else {
-        // Não encontrou matches específicos - mostrar commits mais relevantes
+        // Não encontrou matches específicos - TENTAR LLM COMO FALLBACK
         answer += `🔍 **Análise da pergunta:** "${question}"\n\n`;
         
         if (totalCommits > 0) {
-          // Tentar encontrar commits parcialmente relacionados com expansão
-          const allRawWords = question.toLowerCase()
-            .replace(/[^\w\s]/g, ' ')
-            .split(/\s+/)
-            .filter(w => w.length > 2 && !STOP_WORDS.includes(w));
-          const allExpandedWords = expandKeywords(allRawWords);
+          // Critérios para chamar LLM:
+          // 1. Nenhum match (relatedCommits.length === 0)
+          // 2. Poucos matches mas muitos commits (pode ser falso positivo)
+          const shouldCallLLM = relatedCommits.length === 0 || 
+                                (relatedCommits.length < 3 && totalCommits > 10);
           
-          const partialMatches = commits.filter(commit => {
-            const msg = commit.commit.message.toLowerCase();
-            return allExpandedWords.some(word => word.length > 2 && msg.includes(word));
-          });
+          let llmCommits = null;
+          if (shouldCallLLM) {
+            console.log(`[LLM Fallback] Analisando ${totalCommits} commits para: "${question}"`);
+            llmCommits = await analyzeCommitsWithLLM(commits, question, req.body.model);
+          }
 
-          if (partialMatches.length > 0) {
-            answer += `📋 **Commits possivelmente relacionados (${partialMatches.length}):**\n`;
-            partialMatches.slice(0, 8).forEach(c => {
+          if (llmCommits && llmCommits.length > 0) {
+            // LLM encontrou commits relevantes!
+            answer += `✅ **SIM!** O analisador inteligente encontrou ${llmCommits.length} commit(s) relacionado(s) em ${periodText}:\n\n`;
+            llmCommits.slice(0, 10).forEach(c => {
               const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
-              const shortMsg = c.commit.message.split('\n')[0].substring(0, 75);
-              answer += `• ${date}: ${shortMsg}${shortMsg.length === 75 ? '...' : ''}\n`;
+              const shortMsg = c.commit.message.split('\n')[0].substring(0, 80);
+              answer += `• **${date}**: ${shortMsg}${shortMsg.length === 80 ? '...' : ''}\n`;
             });
-            answer += `\n💡 **Nota:** Estes commits podem estar relacionados à sua pergunta. O sistema já traduz automaticamente termos em português para inglês ao buscar nos commits.\n`;
-          } else {
+            if (llmCommits.length > 10) {
+              answer += `\n*...e mais ${llmCommits.length - 10} commits relacionados*`;
+            }
+            answer += `\n\n✅ **Resposta:** Sim, foram encontradas alterações relacionadas!`;
+            // Atualizar relatedCommits para o response
+            relatedCommits = llmCommits;
+          } else if (llmCommits === null) {
+            // LLM falhou (erro), mostrar mensagem amigável
             answer += `❌ **Não encontrei commits diretamente relacionados** à sua pergunta em ${periodText}.\n\n`;
             answer += `📊 **Commits recentes do período:**\n`;
             commits.slice(0, 8).forEach(c => {
@@ -908,7 +979,17 @@ app.post('/api/analyze', async (req, res) => {
               const shortMsg = c.commit.message.split('\n')[0].substring(0, 75);
               answer += `• ${date}: ${shortMsg}${shortMsg.length === 75 ? '...' : ''}\n`;
             });
-            answer += `\n💡 **Dica:** Não encontrei commits relacionados à sua pergunta. O sistema traduz automaticamente termos técnicos do português para inglês, mas você pode tentar sinônimos ou termos mais técnicos (ex: "estilos" → "styles", "autenticação" → "auth").`;
+            answer += `\n💡 **Dica:** Não encontrei commits relacionados à sua pergunta. Tente termos diferentes ou verifique se houve commits no período solicitado.`;
+          } else {
+            // LLM retornou array vazio (NENHUM relevante)
+            answer += `❌ **Não encontrei commits relacionados** à sua pergunta em ${periodText}.\n\n`;
+            answer += `📊 **Commits recentes do período (para referência):**\n`;
+            commits.slice(0, 8).forEach(c => {
+              const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
+              const shortMsg = c.commit.message.split('\n')[0].substring(0, 75);
+              answer += `• ${date}: ${shortMsg}${shortMsg.length === 75 ? '...' : ''}\n`;
+            });
+            answer += `\n💡 **Nota:** O analisador inteligente verificou semanticamente todos os commits e confirmou que nenhum se refere à sua pergunta. Você pode tentar sinônimos ou ampliar o período de busca.`;
           }
         } else {
           answer += `📊 **Nenhum commit encontrado** em ${periodText}.\n`;
