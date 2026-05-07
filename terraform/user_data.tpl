@@ -57,6 +57,7 @@ fi
 # Criar .env
 log "Criando arquivo .env..."
 echo "OPENCODE_API_KEY=${opencode_api_key}" > .env
+echo "OPENCODE_API_URL=https://opencode.ai/zen/go/v1/chat/completions" >> .env
 echo "PORT=3000" >> .env
 
 # Build

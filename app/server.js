@@ -10,8 +10,8 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// Configurações da API OpenCode Zen
-const OPENCODE_API_URL = 'https://opencode.ai/zen/v1/chat/completions';
+// Configurações da API OpenCode Go
+const OPENCODE_API_URL = process.env.OPENCODE_API_URL || 'https://opencode.ai/zen/go/v1/chat/completions';
 const OPENCODE_API_KEY = process.env.OPENCODE_API_KEY;
 
 // Sessão global (em memória) - armazena o repositório atual
@@ -19,6 +19,7 @@ let currentSession = {
   repoUrl: null,
   owner: null,
   repo: null,
+  model: 'deepseek-v4-flash',
   lastUsed: null
 };
 
@@ -63,18 +64,48 @@ app.post('/api/reset', (req, res) => {
   });
 });
 
+// Rota para listar modelos disponíveis
+app.get('/api/models', (req, res) => {
+  res.json({
+    models: [
+      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'Rápido e econômico - 31k req/5h', icon: '⚡' },
+      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', description: 'Máxima qualidade - 3k req/5h', icon: '🧠' },
+      { id: 'minimax-m2.5', name: 'MiniMax M2.5', description: 'Modelo padrão', icon: '🤖' },
+      { id: 'kimi-k2.5', name: 'Kimi K2.5', description: 'Excelente para código - 1.8k req/5h', icon: '💻' },
+      { id: 'qwen3.5-plus', name: 'Qwen 3.5 Plus', description: 'Bom custo-benefício - 10k req/5h', icon: '⚖️' }
+    ],
+    default: 'deepseek-v4-flash'
+  });
+});
+
+// Rota para atualizar modelo da sessão
+app.post('/api/session/model', (req, res) => {
+  const { model } = req.body;
+  if (model) {
+    currentSession.model = model;
+  }
+  res.json({
+    success: true,
+    model: currentSession.model,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Rota principal para chat com o agente
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, model } = req.body;
     
     if (!message) {
       return res.status(400).json({ error: 'Mensagem é obrigatória' });
     }
+    
+    const selectedModel = model || currentSession.model || 'deepseek-v4-flash';
+    
     const response = await axios.post(
       OPENCODE_API_URL,
       {
-        model: 'minimax-m2.5-free',
+        model: selectedModel,
         messages: [
           { role: 'system', content: 'Você é um assistente útil e amigável.' },
           { role: 'user', content: message }
@@ -94,7 +125,7 @@ app.post('/api/chat', async (req, res) => {
     res.json({
       success: true,
       message: reply,
-      model: 'minimax-m2-5-free',
+      model: selectedModel,
       timestamp: new Date().toISOString()
     });
     
