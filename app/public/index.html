@@ -3,12 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloud AI Agent - Chat & Analyzer</title>
+    <title>Atlas AI - GitHub Analyzer</title>
     <style>
+        /* GitHub Dark Theme */
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border-color: #30363d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-purple: #bc8cff;
+            --accent-orange: #d29922;
+            --btn-primary: #238636;
+            --btn-hover: #2ea043;
+            --btn-danger: #da3633;
+        }
+        
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -16,122 +35,204 @@
             padding: 20px;
         }
         .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.4);
             width: 100%;
             max-width: 900px;
             padding: 30px;
         }
-        h1 { color: #333; text-align: center; margin-bottom: 5px; }
-        .subtitle { text-align: center; color: #666; margin-bottom: 20px; }
+        h1 { 
+            color: var(--text-primary); 
+            text-align: center; 
+            margin-bottom: 5px; 
+            font-size: 28px;
+            font-weight: 600;
+        }
+        .subtitle { 
+            text-align: center; 
+            color: var(--text-secondary); 
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
         
         /* Tabs */
-        .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
+        .tabs { 
+            display: flex; 
+            gap: 8px; 
+            margin-bottom: 20px; 
+            border-bottom: 1px solid var(--border-color); 
+            padding-bottom: 12px; 
+        }
         .tab-btn {
             padding: 10px 20px;
             border: none;
             background: transparent;
-            color: #666;
-            font-size: 16px;
+            color: var(--text-secondary);
+            font-size: 14px;
             cursor: pointer;
             border-radius: 8px;
-            transition: all 0.3s;
+            transition: all 0.2s;
+            font-weight: 500;
         }
-        .tab-btn:hover { background: #f0f0f0; }
-        .tab-btn.active { background: #667eea; color: white; }
+        .tab-btn:hover { 
+            background: var(--bg-tertiary); 
+            color: var(--text-primary);
+        }
+        .tab-btn.active { 
+            background: var(--bg-tertiary); 
+            color: var(--accent-blue);
+        }
         
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         
         /* Chat */
         .chat-container {
-            border: 2px solid #e0e0e0;
-            border-radius: 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
             height: 350px;
             overflow-y: auto;
             padding: 20px;
             margin-bottom: 20px;
-            background: #f9f9f9;
+            background: var(--bg-primary);
         }
         .message {
-            margin-bottom: 15px;
+            margin-bottom: 16px;
             padding: 12px 16px;
-            border-radius: 15px;
+            border-radius: 12px;
             max-width: 85%;
             word-wrap: break-word;
+            font-size: 14px;
+            line-height: 1.5;
         }
-        .user-message { background: #667eea; color: white; margin-left: auto; }
-        .ai-message { background: #e0e0e0; color: #333; }
+        .user-message { 
+            background: var(--accent-blue); 
+            color: #ffffff; 
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+        .ai-message { 
+            background: var(--bg-tertiary); 
+            color: var(--text-primary);
+            border-bottom-left-radius: 4px;
+        }
         
         /* Analyzer */
         .analyzer-form { margin-bottom: 20px; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; color: #333; font-weight: 500; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { 
+            display: block; 
+            margin-bottom: 8px; 
+            color: var(--text-primary); 
+            font-weight: 500;
+            font-size: 14px;
+        }
         .form-group input, .form-group textarea {
             width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
+            padding: 14px;
+            border: 1px solid var(--border-color);
             border-radius: 10px;
             font-size: 14px;
             font-family: inherit;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            transition: border-color 0.2s;
         }
-        .form-group input:focus, .form-group textarea:focus { border-color: #667eea; outline: none; }
-        .form-group textarea { height: 80px; resize: vertical; }
+        .form-group input:focus, .form-group textarea:focus { 
+            border-color: var(--accent-blue); 
+            outline: none; 
+        }
+        .form-group textarea { 
+            height: 80px; 
+            resize: vertical; 
+        }
         
         .result-container {
-            border: 2px solid #e0e0e0;
-            border-radius: 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
             padding: 20px;
-            background: #f9f9f9;
+            background: var(--bg-primary);
             min-height: 200px;
             white-space: pre-wrap;
-            font-family: monospace;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
             font-size: 13px;
             line-height: 1.6;
             display: none;
+            color: var(--text-primary);
         }
         .result-container.show { display: block; }
-        .result-success { color: #28a745; }
-        .result-error { color: #dc3545; }
         
         /* Comum */
         .input-container { display: flex; gap: 10px; }
         input[type="text"] {
             flex: 1;
-            padding: 15px;
-            border: 2px solid #e0e0e0;
+            padding: 14px;
+            border: 1px solid var(--border-color);
             border-radius: 10px;
-            font-size: 16px;
+            font-size: 14px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
         }
+        input[type="text"]:focus { border-color: var(--accent-blue); outline: none; }
+        
         button {
-            padding: 15px 30px;
-            background: #667eea;
+            padding: 14px 28px;
+            background: var(--btn-primary);
             color: white;
             border: none;
             border-radius: 10px;
-            font-size: 16px;
+            font-size: 14px;
             cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
         }
-        button:hover { background: #5a6fd6; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
-        .loading { display: none; text-align: center; color: #667eea; margin-top: 15px; font-weight: 500; }
+        button:hover { background: var(--btn-hover); }
+        button:disabled { 
+            background: var(--bg-tertiary); 
+            color: var(--text-muted);
+            cursor: not-allowed; 
+        }
+        
+        .loading { 
+            display: none; 
+            text-align: center; 
+            color: var(--accent-blue); 
+            margin-top: 15px; 
+            font-weight: 500;
+        }
         
         .info-box {
-            background: #e7f3ff;
-            border-left: 4px solid #667eea;
-            padding: 15px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--accent-blue);
+            padding: 16px;
             margin-bottom: 20px;
-            border-radius: 0 10px 10px 0;
+            border-radius: 0 12px 12px 0;
         }
-        .info-box h3 { color: #667eea; margin-bottom: 5px; font-size: 16px; }
-        .info-box p { color: #666; font-size: 13px; }
+        .info-box h3 { 
+            color: var(--accent-blue); 
+            margin-bottom: 8px; 
+            font-size: 15px;
+        }
+        .info-box p { 
+            color: var(--text-secondary); 
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🤖 Cloud AI Agent</h1>
-        <p class="subtitle">Powered by MiniMax M2.5 Free via OpenCode Zen</p>
+        <h1>🤖 Atlas AI</h1>
+        <p class="subtitle">Analisador de repositórios GitHub para Product Owners</p>
         
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('chat')">💬 Chat</button>
@@ -141,7 +242,7 @@
         <!-- Tab Chat -->
         <div id="chat-tab" class="tab-content active">
             <div id="chat" class="chat-container">
-                <div class="message ai-message">Olá! Sou seu assistente de IA. Posso te ajudar com código ou analisar repositórios GitHub!</div>
+                <div class="message ai-message">Olá! Sou o Atlas AI, seu assistente de IA. Posso te ajudar com código ou analisar repositórios GitHub!</div>
             </div>
             <div class="input-container">
                 <input type="text" id="userInput" placeholder="Digite sua mensagem..." onkeypress="if(event.key === 'Enter') sendMessage()">
@@ -160,7 +261,7 @@
             <div class="analyzer-form">
                 <div class="form-group">
                     <label for="analyzerInput">Sua pergunta:</label>
-                    <textarea id="analyzerInput" placeholder="Ex: me analisa https://github.com/facebook/react e diz se a funcionalidade de login foi implementada"></textarea>
+                    <textarea id="analyzerInput" placeholder="Ex: me analiza https://github.com/facebook/react e diz se a funcionalidade de login foi implementada"></textarea>
                 </div>
                 <button id="analyzeBtn" onclick="analyzeRepo()">🔍 Analisar Repositório</button>
             </div>
@@ -253,7 +354,7 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    let output = `📊 ANÁLISE DO REPOSITÓRIO\n`;
+                    let output = `📊 ATLAS AI - ANÁLISE DE REPOSITÓRIO\n`;
                     output += `═══════════════════════════════════════\n\n`;
                     output += `📁 Repositório: ${data.repo}\n`;
                     output += `📅 Período: ${data.period}\n`;
@@ -266,16 +367,12 @@
                     
                     resultContainer.innerHTML = output;
                     resultContainer.classList.add('show');
-                    resultContainer.classList.remove('result-error');
-                    resultContainer.classList.add('result-success');
                 } else {
                     throw new Error(data.error || data.details);
                 }
             } catch (error) {
                 resultContainer.textContent = `❌ ERRO: ${error.message}`;
                 resultContainer.classList.add('show');
-                resultContainer.classList.add('result-error');
-                resultContainer.classList.remove('result-success');
             } finally {
                 analyzeBtn.disabled = false;
                 analyzerLoading.style.display = 'none';
