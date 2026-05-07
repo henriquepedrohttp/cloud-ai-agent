@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-agent-config
+  namespace: default
+data:
+  PORT: "3000"
+  NODE_ENV: "production"
