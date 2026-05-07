@@ -95,6 +95,41 @@
             border-color: var(--btn-danger);
         }
         
+        /* Selector de Modelo */
+        .model-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .model-selector label {
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .model-selector select {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 13px;
+            cursor: pointer;
+            outline: none;
+        }
+        .model-selector select:focus {
+            border-color: var(--accent-blue);
+        }
+        .model-description {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+
         /* Botão Nova Conversa */
         .btn-new-chat {
             padding: 8px 16px;
@@ -299,6 +334,19 @@
             <button class="btn-clear" onclick="clearSession()">🧹 Limpar Sessão</button>
         </div>
         
+        <!-- Selector de Modelo -->
+        <div class="model-selector">
+            <label for="modelSelect">🤖 Modelo:</label>
+            <select id="modelSelect" onchange="changeModel(this.value)">
+                <option value="deepseek-v4-flash">⚡ DeepSeek V4 Flash</option>
+                <option value="deepseek-v4-pro">🧠 DeepSeek V4 Pro</option>
+                <option value="minimax-m2.5">🤖 MiniMax M2.5</option>
+                <option value="kimi-k2.5">💻 Kimi K2.5</option>
+                <option value="qwen3.5-plus">⚖️ Qwen 3.5 Plus</option>
+            </select>
+            <span class="model-description" id="modelDescription">Rápido e econômico</span>
+        </div>
+        
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('chat')">💬 Chat</button>
             <button class="tab-btn" onclick="switchTab('analyzer')">🔍 Analyzer</button>
@@ -354,6 +402,48 @@
     <script>
         // Variáveis globais
         let currentRepo = null;
+        let availableModels = [];
+
+        // Carregar modelos disponíveis
+        async function loadModels() {
+            try {
+                const response = await fetch('/api/models');
+                const data = await response.json();
+                availableModels = data.models;
+                
+                // Popular select
+                const select = document.getElementById('modelSelect');
+                const savedModel = localStorage.getItem('selectedModel') || data.default;
+                select.value = savedModel;
+                updateModelDescription(savedModel);
+            } catch (e) {
+                console.log('Erro ao carregar modelos:', e);
+            }
+        }
+
+        // Atualizar descrição do modelo
+        function updateModelDescription(modelId) {
+            const model = availableModels.find(m => m.id === modelId);
+            const desc = document.getElementById('modelDescription');
+            if (model && desc) {
+                desc.textContent = model.description;
+            }
+        }
+
+        // Trocar modelo
+        async function changeModel(modelId) {
+            localStorage.setItem('selectedModel', modelId);
+            updateModelDescription(modelId);
+            try {
+                await fetch('/api/session/model', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: modelId })
+                });
+            } catch (e) {
+                console.log('Erro ao salvar modelo:', e);
+            }
+        }
 
         // Verificar sessão ao carregar
         async function checkSession() {
@@ -442,6 +532,7 @@
         async function sendMessage() {
             const message = userInput.value.trim();
             if (!message) return;
+            const selectedModel = document.getElementById('modelSelect').value;
             userInput.disabled = true;
             sendBtn.disabled = true;
             chatLoading.style.display = 'block';
@@ -451,7 +542,7 @@
                 const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
+                    body: JSON.stringify({ message, model: selectedModel })
                 });
                 const data = await response.json();
                 if (data.success) {
@@ -515,6 +606,7 @@
         }
 
         // Inicializar
+        loadModels();
         checkSession();
     </script>
 </body>
