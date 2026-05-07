@@ -105,10 +105,42 @@ app.post('/api/analyze', async (req, res) => {
     const owner = match[1];
     const repo = match[2].replace(/\/$/, '').replace(/\.git$/, '');
 
-    // Calcular data de 7 dias atrás
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const sinceDate = sevenDaysAgo.toISOString().split('T')[0];
+    // Detectar período na pergunta
+    let period = 7; // padrão: 7 dias
+    let periodText = 'últimos 7 dias';
+    const questionLower = question.toLowerCase();
+
+    // Mapeamento de períodos
+    const periodPatterns = [
+      { regex: /últim[oa]s?\s*(\d+)\s*dias?/i, days: null, extract: (m) => parseInt(m[1]) },
+      { regex: /últimos\s*(\d+)\s*dias?/i, days: null, extract: (m) => parseInt(m[1]) },
+      { regex: /última\s*semana/i, days: 7 },
+      { regex: /esta\s*semana/i, days: 7 },
+      { regex: /últimos?\s*mes/i, days: 30 },
+      { regex: /últimos?\s*dois?\s*meses?/i, days: 60 },
+      { regex: /últimos?\s*três?\s*meses?/i, days: 90 },
+      { regex: /últimos?\s*(\d+)\s*meses?/i, days: null, extract: (m) => parseInt(m[1]) * 30 },
+      { regex: /últimos?\s*semanas?\s*(\d+)/i, days: null, extract: (m) => parseInt(m[1]) * 7 },
+    ];
+
+    for (const pattern of periodPatterns) {
+      const matchPeriod = questionLower.match(pattern.regex);
+      if (matchPeriod) {
+        period = pattern.extract ? pattern.extract(matchPeriod) : pattern.days;
+        break;
+      }
+    }
+
+    // Ajustar texto do período
+    if (period === 7) periodText = questionLower.includes('semana') ? 'esta semana' : 'últimos 7 dias';
+    else if (period === 30) periodText = 'último mês';
+    else if (period === 90) periodText = 'últimos 3 meses';
+    else periodText = `últimos ${period} dias`;
+
+    // Calcular data de início do período
+    const sinceDate = new Date();
+    sinceDate.setDate(sinceDate.getDate() - period);
+    const sinceDateStr = sinceDate.toISOString().split('T')[0];
 
     // Buscar commits dos últimos 7 dias
     const commitsResponse = await axios.get(
@@ -137,24 +169,41 @@ app.post('/api/analyze', async (req, res) => {
     // Analisar e gerar resposta
     let answer = '';
     if (relatedCommits.length > 0) {
-      answer = `✅ **SIM!** Encontrei ${relatedCommits.length} commit(s) relacionado(s) nos últimos 7 dias:\n\n`;
-      relatedCommits.slice(0, 5).forEach(c => {
+      answer = `✅ Encontrei ${relatedCommits.length} commit(s) relacionado(s) em ${periodText}:\n\n`;
+      relatedCommits.slice(0, 10).forEach(c => {
         const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
         const shortMsg = c.commit.message.split('\n')[0].substring(0, 80);
         answer += `• **${date}**: ${shortMsg}${shortMsg.length === 80 ? '...' : ''}\n`;
       });
-      if (relatedCommits.length > 5) {
-        answer += `\n*...e mais ${relatedCommits.length - 5} commits relacionados*`;
+      if (relatedCommits.length > 10) {
+        answer += `\n*...e mais ${relatedCommits.length - 10} commits relacionados*`;
       }
     } else {
-      answer = `❌ **NÃO** encontrei commits relacionados à "${question}" nos últimos 7 dias.\n\n`;
+      answer = `❌ Não encontrei commits relacionados à "${question}" em ${periodText}.\n\n`;
       answer += `Resumo do período: ${totalCommits} commits foram feitos, mas nenhum parece estar relacionado à sua pergunta.`;
+    }
+
+    // Se a pergunta for sobre funcionalidades, mostrar resumo das features
+    const isFeatureQuestion = /funcionalidades?|features?|recursos?|o que foi|quais/i.test(question);
+    if (isFeatureQuestion && totalCommits > 0) {
+      const featureKeywords = ['feat', 'feature', 'add', 'new', 'criar', 'implement', 'criado'];
+      const featureCommits = commits.filter(c => 
+        featureKeywords.some(k => c.commit.message.toLowerCase().includes(k))
+      );
+      if (featureCommits.length > 0) {
+        answer += `\n\n📦 **FUNCIONALIDADES/ALTERAÇÕES detectadas (${featureCommits.length}):**\n`;
+        featureCommits.slice(0, 8).forEach(c => {
+          const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
+          const shortMsg = c.commit.message.split('\n')[0].substring(0, 75);
+          answer += `• ${date}: ${shortMsg}\n`;
+        });
+      }
     }
 
     res.json({
       success: true,
       repo: `${owner}/${repo}`,
-      period: 'últimos 7 dias',
+      period: periodText,
       totalCommits,
       relatedCount: relatedCommits.length,
       relatedCommits: relatedCommits.slice(0, 5).map(c => ({
