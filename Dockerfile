@@ -5,7 +5,7 @@ WORKDIR /app
 # Copiar arquivos de dependências primeiro (para cache eficiente)
 COPY app/package*.json ./
 # Instalar dependências de produção
-RUN npm ci --only=production
+RUN npm install --only=production
 # Copiar o código da aplicação
 COPY app/server.js ./
 COPY app/public ./public
