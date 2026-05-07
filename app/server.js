@@ -83,17 +83,13 @@ app.post('/api/analyze', async (req, res) => {
       const urlMatch = text.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/[^\/\s]+\/[^\/\s]+/);
       if (urlMatch) {
         repoUrl = urlMatch[0];
-        // Remover a URL do texto e limpar palavras-chave
-        question = text
-          .replace(urlMatch[0], '')
-          .replace(/me analiza|me analiza|verifica|diz se|esse repo|este repo|analisa|me diga|fala se|essa funcionalidade|essa feature|esse recurso|foi implementada|foi corrigido|foi feito/gi, '')
-          .replace(/\s+/g, ' ')
-          .trim();
+        // Remover apenas a URL do texto - manter o resto como pergunta
+        question = text.replace(urlMatch[0], '').trim();
       }
     }
 
     if (!repoUrl || !question) {
-      return res.status(400).json({ error: 'Forneça a URL do repositório e sua pergunta. Ex: "https://github.com/owner/repo" e "foi implementada a função X"' });
+      return res.status(400).json({ error: 'Forneça a URL do repositório e sua pergunta. Ex: "https://github.com/owner/repo foi implementada a função X"' });
     }
 
     // Extrair owner e repo da URL
@@ -110,43 +106,57 @@ app.post('/api/analyze', async (req, res) => {
     let periodText = 'últimos 7 dias';
     const questionLower = question.toLowerCase();
 
-    // Mapeamento de períodos
+    // Mapeamento de períodos - ordem importa (mais específicos primeiro)
     const periodPatterns = [
-      { regex: /últim[oa]s?\s*(\d+)\s*dias?/i, days: null, extract: (m) => parseInt(m[1]) },
-      { regex: /últimos\s*(\d+)\s*dias?/i, days: null, extract: (m) => parseInt(m[1]) },
-      { regex: /última\s*semana/i, days: 7 },
-      { regex: /esta\s*semana/i, days: 7 },
-      { regex: /últimos?\s*mes/i, days: 30 },
-      { regex: /últimos?\s*dois?\s*meses?/i, days: 60 },
-      { regex: /últimos?\s*três?\s*meses?/i, days: 90 },
-      { regex: /últimos?\s*(\d+)\s*meses?/i, days: null, extract: (m) => parseInt(m[1]) * 30 },
-      { regex: /últimos?\s*semanas?\s*(\d+)/i, days: null, extract: (m) => parseInt(m[1]) * 7 },
+      { regex: /(?:nesta|esta|na)\s+semana/i, days: 7, text: 'esta semana' },
+      { regex: /(?:na\s+)?ultim[oa]s?\s+(\d+)\s*dias?/i, extract: (m) => ({ days: parseInt(m[1]), text: `últimos ${m[1]} dias` }) },
+      { regex: /(?:na\s+)?ultim[oa]s?\s+(\d+)\s*semanas?/i, extract: (m) => ({ days: parseInt(m[1]) * 7, text: `últimas ${m[1]} semanas` }) },
+      { regex: /(?:na\s+)?ultim[oa]s?\s+(\d+)\s*mes(es)?/i, extract: (m) => ({ days: parseInt(m[1]) * 30, text: `últimos ${m[1]} meses` }) },
+      { regex: /(?:na\s+)?ultim[oa]s?\s*semana/i, days: 7, text: 'última semana' },
+      { regex: /(?:no\s+)?ultim[oa]s?\s*mes/i, days: 30, text: 'último mês' },
+      { regex: /(?:nos\s+)?ultimos?\s*dois?\s*meses?/i, days: 60, text: 'últimos 2 meses' },
+      { regex: /(?:nos\s+)?ultimos?\s*tr[eê]s?\s*meses?/i, days: 90, text: 'últimos 3 meses' },
+      { regex: /hoje|dia/i, days: 1, text: 'hoje' },
+      { regex: /ontem/i, days: 2, text: 'ontem' },
     ];
 
     for (const pattern of periodPatterns) {
       const matchPeriod = questionLower.match(pattern.regex);
       if (matchPeriod) {
-        period = pattern.extract ? pattern.extract(matchPeriod) : pattern.days;
+        if (pattern.extract) {
+          const result = pattern.extract(matchPeriod);
+          period = result.days;
+          periodText = result.text;
+        } else {
+          period = pattern.days;
+          periodText = pattern.text;
+        }
         break;
       }
     }
 
-    // Ajustar texto do período
-    if (period === 7) periodText = questionLower.includes('semana') ? 'esta semana' : 'últimos 7 dias';
-    else if (period === 30) periodText = 'último mês';
-    else if (period === 90) periodText = 'últimos 3 meses';
-    else periodText = `últimos ${period} dias`;
-
     // Calcular data de início do período
     const sinceDate = new Date();
     sinceDate.setDate(sinceDate.getDate() - period);
-    const sinceDateStr = sinceDate.toISOString().split('T')[0];
+    const sinceDateStr = sinceDate.toISOString();
 
-    // Buscar commits dos últimos 7 dias
+    // Verificar se o repositório existe antes de buscar commits
+    try {
+      await axios.get(`https://api.github.com/repos/${owner}/${repo}`, {
+        headers: { 'Accept': 'application/vnd.github.v3+json' }
+      });
+    } catch (err) {
+      if (err.response?.status === 404) {
+        return res.status(404).json({ error: 'Repositório não encontrado. Verifique se a URL está correta e se o repositório é público.' });
+      }
+      throw err;
+    }
+
+    // Buscar commits do período
     const commitsResponse = await axios.get(
       `https://api.github.com/repos/${owner}/${repo}/commits`,
       {
-        params: { since: sinceDate, per_page: 30 },
+        params: { since: sinceDateStr, per_page: 50 },
         headers: { 'Accept': 'application/vnd.github.v3+json' }
       }
     );
@@ -154,49 +164,96 @@ app.post('/api/analyze', async (req, res) => {
     const commits = commitsResponse.data;
     const totalCommits = commits.length;
 
-    // Extrair palavras-chave da pergunta do PO
-    const questionWords = question.toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(word => word.length > 3);
+    // Verificar se é uma pergunta genérica (resumo)
+    const isGenericQuestion = /funcionalidades?|features?|recursos?|o que foi|quais|alterações?|mudanças?|resumo|sumário/i.test(questionLower);
+    const isSpecificQuestion = /foi implementad[oa]?|foi corrigido|foi adicionado|foi criado|existe|tem|possui/i.test(questionLower);
 
-    // Filtrar commits relacionados à pergunta
-    const relatedCommits = commits.filter(commit => {
-      const commitMessage = (commit.commit.message + commit.commit.author.name).toLowerCase();
-      return questionWords.some(word => commitMessage.includes(word));
-    });
-
-    // Analisar e gerar resposta
     let answer = '';
-    if (relatedCommits.length > 0) {
-      answer = `✅ Encontrei ${relatedCommits.length} commit(s) relacionado(s) em ${periodText}:\n\n`;
-      relatedCommits.slice(0, 10).forEach(c => {
+    let relatedCommits = [];
+
+    if (isGenericQuestion && totalCommits > 0) {
+      // Pergunta genérica - mostrar resumo de todos os commits
+      answer = `📊 **RESUMO DAS ALTERAÇÕES** em ${periodText}:\n\n`;
+      answer += `📁 Repositório: ${owner}/${repo}\n`;
+      answer += `📅 Período: ${periodText}\n`;
+      answer += `📝 Total de commits: ${totalCommits}\n\n`;
+      
+      // Agrupar por tipo
+      const categories = {
+        features: [],
+        fixes: [],
+        docs: [],
+        refactor: [],
+        other: []
+      };
+
+      commits.forEach(c => {
+        const msg = c.commit.message.toLowerCase();
+        if (/feat|feature|add|new|implement|cria/i.test(msg)) categories.features.push(c);
+        else if (/fix|bug|correct|resolv|corrig/i.test(msg)) categories.fixes.push(c);
+        else if (/doc|readme|comment/i.test(msg)) categories.docs.push(c);
+        else if (/refactor|clean|optim|improv|perf/i.test(msg)) categories.refactor.push(c);
+        else categories.other.push(c);
+      });
+
+      answer += `📦 **Resumo por categoria:**\n`;
+      if (categories.features.length > 0) answer += `• 🚀 Funcionalidades: ${categories.features.length}\n`;
+      if (categories.fixes.length > 0) answer += `• 🐛 Correções: ${categories.fixes.length}\n`;
+      if (categories.refactor.length > 0) answer += `• 🔧 Melhorias: ${categories.refactor.length}\n`;
+      if (categories.docs.length > 0) answer += `• 📝 Documentação: ${categories.docs.length}\n`;
+      if (categories.other.length > 0) answer += `• 📌 Outros: ${categories.other.length}\n`;
+      
+      answer += `\n📋 **Principais commits:**\n`;
+      commits.slice(0, 10).forEach(c => {
         const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
         const shortMsg = c.commit.message.split('\n')[0].substring(0, 80);
         answer += `• **${date}**: ${shortMsg}${shortMsg.length === 80 ? '...' : ''}\n`;
       });
-      if (relatedCommits.length > 10) {
-        answer += `\n*...e mais ${relatedCommits.length - 10} commits relacionados*`;
+      
+      if (commits.length > 10) {
+        answer += `\n*...e mais ${commits.length - 10} commits*`;
       }
-    } else {
-      answer = `❌ Não encontrei commits relacionados à "${question}" em ${periodText}.\n\n`;
-      answer += `Resumo do período: ${totalCommits} commits foram feitos, mas nenhum parece estar relacionado à sua pergunta.`;
-    }
 
-    // Se a pergunta for sobre funcionalidades, mostrar resumo das features
-    const isFeatureQuestion = /funcionalidades?|features?|recursos?|o que foi|quais/i.test(question);
-    if (isFeatureQuestion && totalCommits > 0) {
-      const featureKeywords = ['feat', 'feature', 'add', 'new', 'criar', 'implement', 'criado'];
-      const featureCommits = commits.filter(c => 
-        featureKeywords.some(k => c.commit.message.toLowerCase().includes(k))
-      );
-      if (featureCommits.length > 0) {
-        answer += `\n\n📦 **FUNCIONALIDADES/ALTERAÇÕES detectadas (${featureCommits.length}):**\n`;
-        featureCommits.slice(0, 8).forEach(c => {
-          const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
-          const shortMsg = c.commit.message.split('\n')[0].substring(0, 75);
-          answer += `• ${date}: ${shortMsg}\n`;
+    } else if (isSpecificQuestion || !isGenericQuestion) {
+      // Pergunta específica - buscar por palavras-chave
+      // Extrair palavras-chave (agora com >2 caracteres para pegar "login", "fix", etc)
+      const stopWords = ['foi', 'implementada', 'implementado', 'adicionado', 'corrigido', 'criado', 'existe', 'tem', 'possui', 'esta', 'nesta', 'na', 'no', 'de', 'da', 'do', 'em', 'um', 'uma', 'o', 'a', 'e', 'ou', 'que', 'com', 'por', 'para'];
+      
+      const questionWords = question.toLowerCase()
+        .replace(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+        .filter(word => word.length > 2 && !stopWords.includes(word));
+
+      // Filtrar commits relacionados à pergunta
+      if (questionWords.length > 0) {
+        relatedCommits = commits.filter(commit => {
+          const commitMessage = commit.commit.message.toLowerCase();
+          return questionWords.some(word => commitMessage.includes(word));
         });
+      }
+
+      if (relatedCommits.length > 0) {
+        answer = `✅ **SIM!** Encontrei ${relatedCommits.length} commit(s) relacionado(s) em ${periodText}:\n\n`;
+        relatedCommits.slice(0, 10).forEach(c => {
+          const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
+          const shortMsg = c.commit.message.split('\n')[0].substring(0, 80);
+          answer += `• **${date}**: ${shortMsg}${shortMsg.length === 80 ? '...' : ''}\n`;
+        });
+        if (relatedCommits.length > 10) {
+          answer += `\n*...e mais ${relatedCommits.length - 10} commits relacionados*`;
+        }
+        answer += `\n\n✅ **Resposta:** Sim, a funcionalidade/alteração parece ter sido implementada!`;
+      } else {
+        answer = `❌ **NÃO** encontrei commits relacionados à sua pergunta em ${periodText}.\n\n`;
+        answer += `📊 Resumo do período: ${totalCommits} commits foram feitos, mas nenhum parece estar relacionado ao que você perguntou.\n\n`;
+        if (totalCommits > 0) {
+          answer += `💡 **Commits recentes:**\n`;
+          commits.slice(0, 5).forEach(c => {
+            const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
+            const shortMsg = c.commit.message.split('\n')[0].substring(0, 60);
+            answer += `• ${date}: ${shortMsg}${shortMsg.length === 60 ? '...' : ''}\n`;
+          });
+        }
       }
     }
 
