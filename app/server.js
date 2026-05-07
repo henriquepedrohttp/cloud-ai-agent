@@ -616,6 +616,25 @@ const STOP_WORDS = [
   'revert', 'reverter', 'rollback', 'desfazer',
 ];
 
+// Exceções para match parcial (palavras que não devem ser confundidas)
+const PARTIAL_MATCH_EXCEPTIONS = [
+  // login não deve capturar log e vice-versa
+  ['login', 'log'],
+  ['logs', 'log'],
+  ['logout', 'log'],
+  // auth/autenticação não deve capturar outras palavras
+  ['autenticacao', 'auth'],
+];
+
+// Verifica se um par de palavras está na lista de exceções
+function isExceptionMatch(word1, word2) {
+  const w1 = word1.toLowerCase();
+  const w2 = word2.toLowerCase();
+  return PARTIAL_MATCH_EXCEPTIONS.some(
+    ([a, b]) => (w1 === a && w2 === b) || (w1 === b && w2 === a)
+  );
+}
+
 // Função para expandir palavras PT → EN
 function expandKeywords(words) {
   const expanded = new Set();
@@ -623,13 +642,19 @@ function expandKeywords(words) {
     const lowerWord = word.toLowerCase();
     // Adicionar a palavra original
     expanded.add(lowerWord);
-    // Adicionar expansões do dicionário
+    // Adicionar expansões do dicionário (match exato)
     if (KEYWORD_MAP[lowerWord]) {
       KEYWORD_MAP[lowerWord].forEach(enWord => expanded.add(enWord));
     }
-    // Tentar encontrar match parcial no dicionário
+    // Tentar encontrar match parcial no dicionário (somente para palavras >= 5 chars)
     Object.entries(KEYWORD_MAP).forEach(([ptWord, enWords]) => {
-      if (lowerWord.includes(ptWord) || ptWord.includes(lowerWord)) {
+      // Pular match parcial se for uma exceção conhecida
+      if (isExceptionMatch(lowerWord, ptWord)) {
+        return;
+      }
+      // Match parcial só para palavras do dicionário com >= 5 caracteres
+      // Isso evita que "log" (3 chars) capture "login" (5 chars)
+      if (ptWord.length >= 5 && (lowerWord.includes(ptWord) || ptWord.includes(lowerWord))) {
         enWords.forEach(enWord => expanded.add(enWord));
       }
     });
