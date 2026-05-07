@@ -8,33 +8,49 @@ log() {
 
 log "=== Iniciando deploy do Cloud AI Agent ==="
 
-# Instalar git (não vem na ECS Optimized AMI)
-log "Instalando git..."
-yum install -y git >> "$LOG_FILE" 2>&1
+# Atualizar repositórios
+log "Atualizando repositórios..."
+apt-get update >> "$LOG_FILE" 2>&1
+if [ $? -ne 0 ]; then
+    log "ERRO: apt-get update falhou"
+    exit 1
+fi
+
+# Instalar dependências necessárias
+log "Instalando git e dependências..."
+apt-get install -y git curl ca-certificates gnupg lsb-release >> "$LOG_FILE" 2>&1
 if [ $? -ne 0 ]; then
     log "ERRO: Falha ao instalar git"
+    exit 1
+fi
+
+# Instalar Docker
+log "Instalando Docker..."
+# Adicionar repositório oficial do Docker
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg >> "$LOG_FILE" 2>&1
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+apt-get update >> "$LOG_FILE" 2>&1
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >> "$LOG_FILE" 2>&1
+if [ $? -ne 0 ]; then
+    log "ERRO: Falha ao instalar Docker"
     exit 1
 fi
 
 # Iniciar Docker
 log "Iniciando Docker..."
 systemctl start docker >> "$LOG_FILE" 2>&1
-if [ $? -ne 0 ]; then
-    log "ERRO: Docker start falhou"
-    exit 1
-fi
-
 systemctl enable docker >> "$LOG_FILE" 2>&1
 
-# Verificar se Docker está funcionando
+# Verificar Docker
 log "Verificando Docker..."
 docker --version >> "$LOG_FILE" 2>&1
 if [ $? -ne 0 ]; then
-    log "ERRO: Docker não está disponível"
+    log "ERRO: Docker não está funcionando"
     exit 1
 fi
 
-# Clonar repositório do GitHub
+# Clonar repositório
 log "Clonando repositório do GitHub..."
 git clone ${github_repo} /app >> "$LOG_FILE" 2>&1
 if [ $? -ne 0 ]; then
@@ -48,12 +64,12 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Criar arquivo .env com a API key
+# Criar .env
 log "Criando arquivo .env..."
 echo "OPENCODE_API_KEY=${opencode_api_key}" > .env
 echo "PORT=3000" >> .env
 
-# Build da imagem Docker
+# Build
 log "Buildando container Docker..."
 docker build -t cloud-ai-agent . >> "$LOG_FILE" 2>&1
 if [ $? -ne 0 ]; then
@@ -61,10 +77,10 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Parar container existente se houver
+# Parar container existente
 docker rm -f cloud-ai-agent 2>/dev/null || true
 
-# Rodar o container
+# Rodar container
 log "Iniciando aplicação..."
 docker run -d -p 3000:3000 --env-file .env --name cloud-ai-agent cloud-ai-agent >> "$LOG_FILE" 2>&1
 if [ $? -ne 0 ]; then
@@ -72,11 +88,10 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Verificar se está rodando
+# Verificar
 sleep 5
 if docker ps | grep -q cloud-ai-agent; then
     log "=== Deploy concluído com sucesso! ==="
-    log "Aplicação disponível em http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):3000"
 else
     log "ERRO: Container não está rodando!"
     exit 1

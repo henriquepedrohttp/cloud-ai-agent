@@ -11,13 +11,13 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Buscar AMI ECS Optimized (já vem com Docker)
-data "aws_ami" "ecs_optimized" {
+# Buscar AMI Ubuntu 22.04 LTS
+data "aws_ami" "ubuntu" {
   most_recent = true
-  owners     = ["amazon"]
+  owners     = ["099720109477"]
   filter {
     name   = "name"
-    values = ["amzn2-ami-ecs-hvm-*-x86_64-ebs"]
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-*"]
   }
 }
 
@@ -52,7 +52,7 @@ resource "aws_security_group" "ec2_sg" {
 
 # EC2 Instance
 resource "aws_instance" "web" {
-  ami           = data.aws_ami.ecs_optimized.id
+  ami           = data.aws_ami.ubuntu.id
   instance_type = var.instance_type
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
 
