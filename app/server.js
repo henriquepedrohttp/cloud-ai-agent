@@ -327,14 +327,23 @@ app.post('/api/analyze', async (req, res) => {
         answer += `\n*...e mais ${commits.length - 10} commits*`;
       }
 
-    } else if (isSpecificQuestion || !isGenericQuestion) {
+    } else {
       // Pergunta específica - buscar por palavras-chave
-      const stopWords = ['foi', 'implementada', 'implementado', 'adicionado', 'corrigido', 'criado', 'existe', 'tem', 'possui', 'esta', 'nesta', 'na', 'no', 'de', 'da', 'do', 'em', 'um', 'uma', 'o', 'a', 'e', 'ou', 'que', 'com', 'por', 'para', 'sobre', 'dessa', 'desse'];
+      const stopWords = ['foi', 'implementada', 'implementado', 'adicionado', 'corrigido', 'criado', 'existe', 'tem', 'possui', 'esta', 'nesta', 'na', 'no', 'de', 'da', 'do', 'em', 'um', 'uma', 'o', 'a', 'e', 'ou', 'que', 'com', 'por', 'para', 'sobre', 'dessa', 'desse', 'do', 'da', 'dos', 'das'];
       
-      const questionWords = question.toLowerCase()
+      // Extrair palavras-chave significativas
+      let questionWords = question.toLowerCase()
         .replace(/[^\w\s]/g, ' ')
         .split(/\s+/)
         .filter(word => word.length > 2 && !stopWords.includes(word));
+
+      // Se poucas palavras, reduzir filtro para pegar mais
+      if (questionWords.length < 2) {
+        questionWords = question.toLowerCase()
+          .replace(/[^\w\s]/g, ' ')
+          .split(/\s+/)
+          .filter(word => word.length > 1 && !stopWords.includes(word));
+      }
 
       // Filtrar commits relacionados à pergunta
       if (questionWords.length > 0) {
@@ -358,15 +367,40 @@ app.post('/api/analyze', async (req, res) => {
         }
         answer += `\n\n✅ **Resposta:** Sim, a funcionalidade/alteração parece ter sido implementada!`;
       } else {
-        answer += `❌ **NÃO** encontrei commits relacionados à sua pergunta em ${periodText}.\n\n`;
-        answer += `📊 Resumo do período: ${totalCommits} commits foram feitos, mas nenhum parece estar relacionado ao que você perguntou.\n\n`;
+        // Não encontrou matches específicos - mostrar commits mais relevantes
+        answer += `🔍 **Análise da pergunta:** "${question}"\n\n`;
+        
         if (totalCommits > 0) {
-          answer += `💡 **Commits recentes:**\n`;
-          commits.slice(0, 5).forEach(c => {
-            const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
-            const shortMsg = c.commit.message.split('\n')[0].substring(0, 60);
-            answer += `• ${date}: ${shortMsg}${shortMsg.length === 60 ? '...' : ''}\n`;
+          // Tentar encontrar commits parcialmente relacionados
+          const partialMatches = commits.filter(commit => {
+            const msg = commit.commit.message.toLowerCase();
+            // Buscar qualquer palavra da pergunta, mesmo pequena
+            const allWords = question.toLowerCase().split(/\s+/).filter(w => w.length > 1);
+            return allWords.some(word => 
+              word.length > 3 && msg.includes(word)
+            );
           });
+
+          if (partialMatches.length > 0) {
+            answer += `📋 **Commits possivelmente relacionados (${partialMatches.length}):**\n`;
+            partialMatches.slice(0, 8).forEach(c => {
+              const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
+              const shortMsg = c.commit.message.split('\n')[0].substring(0, 75);
+              answer += `• ${date}: ${shortMsg}${shortMsg.length === 75 ? '...' : ''}\n`;
+            });
+            answer += `\n💡 **Nota:** Estes commits podem estar relacionados à sua pergunta. Como os commits são em inglês, tente perguntar usando termos técnicos em inglês.\n`;
+          } else {
+            answer += `❌ **Não encontrei commits diretamente relacionados** à sua pergunta em ${periodText}.\n\n`;
+            answer += `📊 **Commits recentes do período:**\n`;
+            commits.slice(0, 8).forEach(c => {
+              const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
+              const shortMsg = c.commit.message.split('\n')[0].substring(0, 75);
+              answer += `• ${date}: ${shortMsg}${shortMsg.length === 75 ? '...' : ''}\n`;
+            });
+            answer += `\n💡 **Dica:** Os commits deste projeto estão em inglês. Tente usar termos como "visual", "style", "theme", "design" para perguntar sobre mudanças visuais.`;
+          }
+        } else {
+          answer += `📊 **Nenhum commit encontrado** em ${periodText}.\n`;
         }
       }
     }
