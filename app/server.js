@@ -70,6 +70,102 @@ app.post('/api/chat', async (req, res) => {
     });
   }
 });
+
+// Analisador de Repositório GitHub para POs
+app.post('/api/analyze', async (req, res) => {
+  try {
+    const { repoUrl, question } = req.body;
+    
+    if (!repoUrl || !question) {
+      return res.status(400).json({ error: 'URL do repositório e pergunta são obrigatória' });
+    }
+
+    // Extrair owner e repo da URL
+    const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+    if (!match) {
+      return res.status(400).json({ error: 'URL do GitHub inválida. Use: https://github.com/owner/repo' });
+    }
+
+    const owner = match[1];
+    const repo = match[2].replace(/\/$/, '');
+
+    // Calcular data de 7 dias atrás
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sinceDate = sevenDaysAgo.toISOString().split('T')[0];
+
+    // Buscar commits dos últimos 7 dias
+    const commitsResponse = await axios.get(
+      `https://api.github.com/repos/${owner}/${repo}/commits`,
+      {
+        params: { since: sinceDate, per_page: 30 },
+        headers: { 'Accept': 'application/vnd.github.v3+json' }
+      }
+    );
+
+    const commits = commitsResponse.data;
+    const totalCommits = commits.length;
+
+    // Extrair palavras-chave da pergunta do PO
+    const questionWords = question.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 3);
+
+    // Filtrar commits relacionados à pergunta
+    const relatedCommits = commits.filter(commit => {
+      const commitMessage = (commit.commit.message + commit.commit.author.name).toLowerCase();
+      return questionWords.some(word => commitMessage.includes(word));
+    });
+
+    // Analisar e gerar resposta
+    let answer = '';
+    if (relatedCommits.length > 0) {
+      answer = `✅ **SIM!** Encontrei ${relatedCommits.length} commit(s) relacionado(s) nos últimos 7 dias:\n\n`;
+      relatedCommits.slice(0, 5).forEach(c => {
+        const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
+        const shortMsg = c.commit.message.split('\n')[0].substring(0, 80);
+        answer += `• **${date}**: ${shortMsg}${shortMsg.length === 80 ? '...' : ''}\n`;
+      });
+      if (relatedCommits.length > 5) {
+        answer += `\n*...e mais ${relatedCommits.length - 5} commits relacionados*`;
+      }
+    } else {
+      answer = `❌ **NÃO** encontrei commits relacionados à "${question}" nos últimos 7 dias.\n\n`;
+      answer += `Resumo do período: ${totalCommits} commits foram feitos, mas nenhum parece estar relacionado à sua pergunta.`;
+    }
+
+    res.json({
+      success: true,
+      repo: `${owner}/${repo}`,
+      period: 'últimos 7 dias',
+      totalCommits,
+      relatedCount: relatedCommits.length,
+      relatedCommits: relatedCommits.slice(0, 5).map(c => ({
+        message: c.commit.message.split('\n')[0],
+        author: c.commit.author.name,
+        date: c.commit.author.date,
+        url: c.html_url
+      })),
+      answer,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Erro ao analisar repositório:', error.message);
+    if (error.response?.status === 404) {
+      return res.status(404).json({ error: 'Repositório não encontrado. Verifique a URL.' });
+    }
+    if (error.response?.status === 403) {
+      return res.status(403).json({ error: 'Limite de requisições do GitHub atingido. Tente novamente mais tarde.' });
+    }
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao analisar repositório',
+      details: error.message
+    });
+  }
+});
 // Iniciar servidor
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agente de IA - Cloud Computing</title>
+    <title>Cloud AI Agent - Chat & Analyzer</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -20,15 +20,35 @@
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             width: 100%;
-            max-width: 800px;
-            padding: 40px;
+            max-width: 900px;
+            padding: 30px;
         }
-        h1 { color: #333; text-align: center; margin-bottom: 10px; }
-        .subtitle { text-align: center; color: #666; margin-bottom: 30px; }
+        h1 { color: #333; text-align: center; margin-bottom: 5px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 20px; }
+        
+        /* Tabs */
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
+        .tab-btn {
+            padding: 10px 20px;
+            border: none;
+            background: transparent;
+            color: #666;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        .tab-btn:hover { background: #f0f0f0; }
+        .tab-btn.active { background: #667eea; color: white; }
+        
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        /* Chat */
         .chat-container {
             border: 2px solid #e0e0e0;
             border-radius: 15px;
-            height: 400px;
+            height: 350px;
             overflow-y: auto;
             padding: 20px;
             margin-bottom: 20px;
@@ -38,11 +58,44 @@
             margin-bottom: 15px;
             padding: 12px 16px;
             border-radius: 15px;
-            max-width: 80%;
+            max-width: 85%;
             word-wrap: break-word;
         }
-        .user-message { background: #667eea; color: white; margin-left: auto; text-align: right; }
+        .user-message { background: #667eea; color: white; margin-left: auto; }
         .ai-message { background: #e0e0e0; color: #333; }
+        
+        /* Analyzer */
+        .analyzer-form { margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #333; font-weight: 500; }
+        .form-group input, .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .form-group input:focus, .form-group textarea:focus { border-color: #667eea; outline: none; }
+        .form-group textarea { height: 80px; resize: vertical; }
+        
+        .result-container {
+            border: 2px solid #e0e0e0;
+            border-radius: 15px;
+            padding: 20px;
+            background: #f9f9f9;
+            min-height: 200px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            display: none;
+        }
+        .result-container.show { display: block; }
+        .result-success { color: #28a745; }
+        .result-error { color: #dc3545; }
+        
+        /* Comum */
         .input-container { display: flex; gap: 10px; }
         input[type="text"] {
             flex: 1;
@@ -50,9 +103,7 @@
             border: 2px solid #e0e0e0;
             border-radius: 10px;
             font-size: 16px;
-            outline: none;
         }
-        input[type="text"]:focus { border-color: #667eea; }
         button {
             padding: 15px 30px;
             background: #667eea;
@@ -64,27 +115,85 @@
         }
         button:hover { background: #5a6fd6; }
         button:disabled { background: #ccc; cursor: not-allowed; }
-        .loading { display: none; text-align: center; color: #667eea; margin-top: 10px; }
+        .loading { display: none; text-align: center; color: #667eea; margin-top: 15px; font-weight: 500; }
+        
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 0 10px 10px 0;
+        }
+        .info-box h3 { color: #667eea; margin-bottom: 5px; font-size: 16px; }
+        .info-box p { color: #666; font-size: 13px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🤖 Agente de IA</h1>
+        <h1>🤖 Cloud AI Agent</h1>
         <p class="subtitle">Powered by MiniMax M2.5 Free via OpenCode Zen</p>
-        <div id="chat" class="chat-container">
-            <div class="message ai-message">Olá! Sou um agente de IA rodando em Kubernetes. Como posso ajudar?</div>
+        
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('chat')">💬 Chat</button>
+            <button class="tab-btn" onclick="switchTab('analyzer')">🔍 Analyzer</button>
         </div>
-        <div class="input-container">
-            <input type="text" id="userInput" placeholder="Digite sua mensagem..." onkeypress="if(event.key === 'Enter') sendMessage()">
-            <button id="sendBtn" onclick="sendMessage()">Enviar</button>
+        
+        <!-- Tab Chat -->
+        <div id="chat-tab" class="tab-content active">
+            <div id="chat" class="chat-container">
+                <div class="message ai-message">Olá! Sou seu assistente de IA. Posso te ajudar com código ou analisar repositórios GitHub!</div>
+            </div>
+            <div class="input-container">
+                <input type="text" id="userInput" placeholder="Digite sua mensagem..." onkeypress="if(event.key === 'Enter') sendMessage()">
+                <button id="sendBtn" onclick="sendMessage()">Enviar</button>
+            </div>
+            <div id="chat-loading" class="loading">⏳ Processando...</div>
         </div>
-        <div id="loading" class="loading">⏳ Processando...</div>
+        
+        <!-- Tab Analyzer -->
+        <div id="analyzer-tab" class="tab-content">
+            <div class="info-box">
+                <h3>📋 Para Product Owners</h3>
+                <p>Digite a URL de um repositório GitHub e faça sua pergunta. O agente analisará os commits dos últimos 7 dias para responder se a funcionalidade/correção foi implementada.</p>
+            </div>
+            
+            <div class="analyzer-form">
+                <div class="form-group">
+                    <label for="repoUrl">URL do Repositório GitHub:</label>
+                    <input type="text" id="repoUrl" placeholder="https://github.com/facebook/react">
+                </div>
+                <div class="form-group">
+                    <label for="question">Pergunta para o PO:</label>
+                    <textarea id="question" placeholder="Ex: A funcionalidade de login foi implementada? O bug da tela inicial foi corrigido?"></textarea>
+                </div>
+                <button id="analyzeBtn" onclick="analyzeRepo()">🔍 Analisar Repositório</button>
+            </div>
+            
+            <div id="analyzer-loading" class="loading">⏳ Analisando repositório...</div>
+            <div id="result" class="result-container"></div>
+        </div>
     </div>
+
     <script>
+        // Chat functions
         const chat = document.getElementById('chat');
         const userInput = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
-        const loading = document.getElementById('loading');
+        const chatLoading = document.getElementById('chat-loading');
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            if (tab === 'chat') {
+                document.querySelectorAll('.tab-btn')[0].classList.add('active');
+                document.getElementById('chat-tab').classList.add('active');
+            } else {
+                document.querySelectorAll('.tab-btn')[1].classList.add('active');
+                document.getElementById('analyzer-tab').classList.add('active');
+            }
+        }
+
         function addMessage(text, isUser) {
             const div = document.createElement('div');
             div.className = 'message ' + (isUser ? 'user-message' : 'ai-message');
@@ -92,12 +201,13 @@
             chat.appendChild(div);
             chat.scrollTop = chat.scrollHeight;
         }
+
         async function sendMessage() {
             const message = userInput.value.trim();
             if (!message) return;
             userInput.disabled = true;
             sendBtn.disabled = true;
-            loading.style.display = 'block';
+            chatLoading.style.display = 'block';
             addMessage(message, true);
             userInput.value = '';
             try {
@@ -117,7 +227,63 @@
             } finally {
                 userInput.disabled = false;
                 sendBtn.disabled = false;
-                loading.style.display = 'none';
+                chatLoading.style.display = 'none';
+            }
+        }
+
+        // Analyzer functions
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const analyzerLoading = document.getElementById('analyzer-loading');
+        const resultContainer = document.getElementById('result');
+
+        async function analyzeRepo() {
+            const repoUrl = document.getElementById('repoUrl').value.trim();
+            const question = document.getElementById('question').value.trim();
+            
+            if (!repoUrl || !question) {
+                alert('Por favor, preencha a URL do repositório e sua pergunta.');
+                return;
+            }
+
+            analyzeBtn.disabled = true;
+            analyzerLoading.style.display = 'block';
+            resultContainer.classList.remove('show');
+            
+            try {
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ repoUrl, question })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    let output = `📊 ANÁLISE DO REPOSITÓRIO\n`;
+                    output += `═══════════════════════════════════════\n\n`;
+                    output += `📁 Repositório: ${data.repo}\n`;
+                    output += `📅 Período: ${data.period}\n`;
+                    output += `📝 Total de commits: ${data.totalCommits}\n`;
+                    output += `🔗 Commits relacionados: ${data.relatedCount}\n\n`;
+                    output += `═══════════════════════════════════════\n`;
+                    output += `RESPOSTA:\n`;
+                    output += `═══════════════════════════════════════\n\n`;
+                    output += data.answer;
+                    
+                    resultContainer.innerHTML = output;
+                    resultContainer.classList.add('show');
+                    resultContainer.classList.remove('result-error');
+                    resultContainer.classList.add('result-success');
+                } else {
+                    throw new Error(data.error || data.details);
+                }
+            } catch (error) {
+                resultContainer.textContent = `❌ ERRO: ${error.message}`;
+                resultContainer.classList.add('show');
+                resultContainer.classList.add('result-error');
+                resultContainer.classList.remove('result-success');
+            } finally {
+                analyzeBtn.disabled = false;
+                analyzerLoading.style.display = 'none';
             }
         }
     </script>
