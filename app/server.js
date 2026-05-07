@@ -635,8 +635,8 @@ function isExceptionMatch(word1, word2) {
   );
 }
 
-// Função para analisar commits semanticamente com LLM
-async function analyzeCommitsWithLLM(commits, question, model) {
+// Função para analisar commits com LLM - retorna a resposta formatada diretamente
+async function analyzeCommitsWithLLM(commits, question, periodText, model) {
   try {
     const selectedModel = model || currentSession.model || 'deepseek-v4-flash';
     
@@ -653,19 +653,26 @@ async function analyzeCommitsWithLLM(commits, question, model) {
         messages: [
           {
             role: 'system',
-            content: 'Você é um analisador de commits Git. Sua tarefa é identificar commits relevantes a uma pergunta. Responda APENAS com números entre colchetes dos commits relevantes, ou "NENHUM" se nenhum for relevante. Não dê explicações.'
+            content: `Você é um analisador de commits Git para Product Owners. 
+Analise a pergunta do usuário e a lista de commits. Responda em português do Brasil.
+
+SE encontrar commits relevantes:
+- Liste os commits relevantes com data e mensagem
+- Dê uma resposta clara sobre o que foi implementado
+
+SE NÃO encontrar commits relevantes:
+- Diga claramente que não encontrou commits relacionados
+- NÃO invente informações
+- NÃO liste commits irrelevantes
+
+Formate com emojis e markdown.`
           },
           {
             role: 'user',
-            content: `Pergunta: "${question}"
-
-Commits disponíveis:
-${commitsText}
-
-Quais commits são relevantes à pergunta? Responda apenas com os números [1], [2], etc. ou "NENHUM".`
+            content: `Pergunta: "${question}"\n\nPeríodo: ${periodText}\nTotal de commits: ${commits.length}\n\nCommits:\n${commitsText}\n\nResponda em português.`
           }
         ],
-        max_tokens: 200,
+        max_tokens: 800,
         temperature: 0.1
       },
       {
@@ -676,26 +683,10 @@ Quais commits são relevantes à pergunta? Responda apenas com os números [1], 
       }
     );
 
-    const content = response.data.choices[0].message.content;
-    
-    // Se respondeu NENHUM
-    if (content.toUpperCase().includes('NENHUM')) {
-      return [];
-    }
-
-    // Extrair números [1], [2], etc.
-    const matches = content.match(/\[(\d+)\]/g);
-    if (!matches) return [];
-
-    const indices = matches.map(m => parseInt(m.replace(/[\[\]]/g, '')) - 1);
-    const relevantCommits = indices
-      .filter(i => i >= 0 && i < commitsToAnalyze.length)
-      .map(i => commitsToAnalyze[i]);
-
-    return relevantCommits;
+    return response.data.choices[0].message.content;
   } catch (error) {
     console.error('Erro na análise LLM:', error.message);
-    return null; // null = erro, não conseguiu analisar
+    return null;
   }
 }
 
@@ -837,14 +828,8 @@ app.post('/api/analyze', async (req, res) => {
 
     const commits = commitsResponse.data;
     const totalCommits = commits.length;
-    const questionLower = question.toLowerCase();
-
-    // Verificar se é uma pergunta genérica (resumo) ou específica
-    const isGenericQuestion = /funcionalidades?|features?|recursos?|o que foi|quais|alterações?|mudanças?|resumo|sumário|tudo/i.test(questionLower);
-    const isSpecificQuestion = /foi implementad[oa]?|foi corrigido|foi adicionado|foi criado|existe|tem|possui|adicionei|implementei|criei|subi/i.test(questionLower);
 
     let answer = '';
-    let relatedCommits = [];
 
     // Header da resposta
     let headerInfo = '';
@@ -854,146 +839,25 @@ app.post('/api/analyze', async (req, res) => {
       headerInfo = `📁 **Repositório atual:** ${owner}/${repo}\n\n`;
     }
 
-    // Priorizar perguntas específicas sobre genéricas
-    if (isGenericQuestion && !isSpecificQuestion && totalCommits > 0) {
-      // Pergunta genérica - mostrar resumo de todos os commits
+    // ANÁLISE SEMPRE VIA LLM - sem keywords, sem categorização manual
+    if (totalCommits === 0) {
       answer = headerInfo;
-      answer += `📊 **RESUMO DAS ALTERAÇÕES** em ${periodText}:\n\n`;
-      answer += `📅 Período: ${periodText}\n`;
-      answer += `📝 Total de commits: ${totalCommits}\n\n`;
-      
-      // Agrupar por tipo
-      const categories = {
-        features: [],
-        fixes: [],
-        docs: [],
-        refactor: [],
-        other: []
-      };
-
-      commits.forEach(c => {
-        const msg = c.commit.message.toLowerCase();
-        if (/feat|feature|add|new|implement|cria/i.test(msg)) categories.features.push(c);
-        else if (/fix|bug|correct|resolv|corrig/i.test(msg)) categories.fixes.push(c);
-        else if (/doc|readme|comment/i.test(msg)) categories.docs.push(c);
-        else if (/refactor|clean|optim|improv|perf/i.test(msg)) categories.refactor.push(c);
-        else categories.other.push(c);
-      });
-
-      answer += `📦 **Resumo por categoria:**\n`;
-      if (categories.features.length > 0) answer += `• 🚀 Funcionalidades: ${categories.features.length}\n`;
-      if (categories.fixes.length > 0) answer += `• 🐛 Correções: ${categories.fixes.length}\n`;
-      if (categories.refactor.length > 0) answer += `• 🔧 Melhorias: ${categories.refactor.length}\n`;
-      if (categories.docs.length > 0) answer += `• 📝 Documentação: ${categories.docs.length}\n`;
-      if (categories.other.length > 0) answer += `• 📌 Outros: ${categories.other.length}\n`;
-      
-      answer += `\n📋 **Principais commits:**\n`;
-      commits.slice(0, 10).forEach(c => {
-        const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
-        const shortMsg = c.commit.message.split('\n')[0].substring(0, 80);
-        answer += `• **${date}**: ${shortMsg}${shortMsg.length === 80 ? '...' : ''}\n`;
-      });
-      
-      if (commits.length > 10) {
-        answer += `\n*...e mais ${commits.length - 10} commits*`;
-      }
-
+      answer += `📊 **Nenhum commit encontrado** em ${periodText}.\n`;
     } else {
-      // Pergunta específica - buscar por palavras-chave com expansão PT→EN
+      console.log(`[LLM Analyze] Analisando ${totalCommits} commits para: "${question}"`);
+      const llmAnswer = await analyzeCommitsWithLLM(commits, question, periodText, req.body.model);
       
-      // Extrair palavras-chave significativas
-      let rawWords = question.toLowerCase()
-        .replace(/[^\w\s]/g, ' ')
-        .split(/\s+/)
-        .filter(word => word.length > 2 && !STOP_WORDS.includes(word));
-
-      // Se poucas palavras, reduzir filtro para pegar mais
-      if (rawWords.length < 2) {
-        rawWords = question.toLowerCase()
-          .replace(/[^\w\s]/g, ' ')
-          .split(/\s+/)
-          .filter(word => word.length > 1 && !STOP_WORDS.includes(word));
-      }
-
-      // Expandir palavras PT → EN
-      const questionWords = expandKeywords(rawWords);
-
-      // Filtrar commits relacionados à pergunta (com pesos)
-      if (questionWords.length > 0) {
-        relatedCommits = commits.filter(commit => {
-          const commitMessage = commit.commit.message.toLowerCase();
-          return questionWords.some(word => commitMessage.includes(word));
-        });
-      }
-
-      answer = headerInfo;
-
-      if (relatedCommits.length > 0) {
-        answer += `✅ **SIM!** Encontrei ${relatedCommits.length} commit(s) relacionado(s) em ${periodText}:\n\n`;
-        relatedCommits.slice(0, 10).forEach(c => {
-          const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
-          const shortMsg = c.commit.message.split('\n')[0].substring(0, 80);
-          answer += `• **${date}**: ${shortMsg}${shortMsg.length === 80 ? '...' : ''}\n`;
-        });
-        if (relatedCommits.length > 10) {
-          answer += `\n*...e mais ${relatedCommits.length - 10} commits relacionados*`;
-        }
-        answer += `\n\n✅ **Resposta:** Sim, a funcionalidade/alteração parece ter sido implementada!`;
+      if (llmAnswer) {
+        answer = headerInfo + llmAnswer;
       } else {
-        // Não encontrou matches específicos - TENTAR LLM COMO FALLBACK
-        answer += `🔍 **Análise da pergunta:** "${question}"\n\n`;
-        
-        if (totalCommits > 0) {
-          // Critérios para chamar LLM:
-          // 1. Nenhum match (relatedCommits.length === 0)
-          // 2. Poucos matches mas muitos commits (pode ser falso positivo)
-          const shouldCallLLM = relatedCommits.length === 0 || 
-                                (relatedCommits.length < 3 && totalCommits > 10);
-          
-          let llmCommits = null;
-          if (shouldCallLLM) {
-            console.log(`[LLM Fallback] Analisando ${totalCommits} commits para: "${question}"`);
-            llmCommits = await analyzeCommitsWithLLM(commits, question, req.body.model);
-          }
-
-          if (llmCommits && llmCommits.length > 0) {
-            // LLM encontrou commits relevantes!
-            answer += `✅ **SIM!** O analisador inteligente encontrou ${llmCommits.length} commit(s) relacionado(s) em ${periodText}:\n\n`;
-            llmCommits.slice(0, 10).forEach(c => {
-              const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
-              const shortMsg = c.commit.message.split('\n')[0].substring(0, 80);
-              answer += `• **${date}**: ${shortMsg}${shortMsg.length === 80 ? '...' : ''}\n`;
-            });
-            if (llmCommits.length > 10) {
-              answer += `\n*...e mais ${llmCommits.length - 10} commits relacionados*`;
-            }
-            answer += `\n\n✅ **Resposta:** Sim, foram encontradas alterações relacionadas!`;
-            // Atualizar relatedCommits para o response
-            relatedCommits = llmCommits;
-          } else if (llmCommits === null) {
-            // LLM falhou (erro), mostrar mensagem amigável
-            answer += `❌ **Não encontrei commits diretamente relacionados** à sua pergunta em ${periodText}.\n\n`;
-            answer += `📊 **Commits recentes do período:**\n`;
-            commits.slice(0, 8).forEach(c => {
-              const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
-              const shortMsg = c.commit.message.split('\n')[0].substring(0, 75);
-              answer += `• ${date}: ${shortMsg}${shortMsg.length === 75 ? '...' : ''}\n`;
-            });
-            answer += `\n💡 **Dica:** Não encontrei commits relacionados à sua pergunta. Tente termos diferentes ou verifique se houve commits no período solicitado.`;
-          } else {
-            // LLM retornou array vazio (NENHUM relevante)
-            answer += `❌ **Não encontrei commits relacionados** à sua pergunta em ${periodText}.\n\n`;
-            answer += `📊 **Commits recentes do período (para referência):**\n`;
-            commits.slice(0, 8).forEach(c => {
-              const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
-              const shortMsg = c.commit.message.split('\n')[0].substring(0, 75);
-              answer += `• ${date}: ${shortMsg}${shortMsg.length === 75 ? '...' : ''}\n`;
-            });
-            answer += `\n💡 **Nota:** O analisador inteligente verificou semanticamente todos os commits e confirmou que nenhum se refere à sua pergunta. Você pode tentar sinônimos ou ampliar o período de busca.`;
-          }
-        } else {
-          answer += `📊 **Nenhum commit encontrado** em ${periodText}.\n`;
-        }
+        answer = headerInfo;
+        answer += `❌ **Erro ao analisar commits** com o modelo de IA.\n\n`;
+        answer += `📊 **Commits recentes do período:**\n`;
+        commits.slice(0, 8).forEach(c => {
+          const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
+          const shortMsg = c.commit.message.split('\n')[0].substring(0, 75);
+          answer += `• ${date}: ${shortMsg}${shortMsg.length === 75 ? '...' : ''}\n`;
+        });
       }
     }
 
@@ -1005,13 +869,6 @@ app.post('/api/analyze', async (req, res) => {
       repo: `${owner}/${repo}`,
       period: periodText,
       totalCommits,
-      relatedCount: relatedCommits.length,
-      relatedCommits: relatedCommits.slice(0, 5).map(c => ({
-        message: c.commit.message.split('\n')[0],
-        author: c.commit.author.name,
-        date: c.commit.author.date,
-        url: c.html_url
-      })),
       answer,
       sessionInfo: {
         hasRepo: true,
